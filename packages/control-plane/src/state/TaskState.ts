@@ -4,25 +4,39 @@
  */
 
 export type TaskStatus =
+  | 'DRAFT'
+  | 'UNDERSTANDING'
+  | 'PLANNING'
+  | 'AWAITING_CLARIFICATION'
+  | 'AWAITING_APPROVAL'
   | 'BACKLOG'
   | 'PLANNED'
   | 'QUEUED'
   | 'RUNNING'
+  | 'EXECUTING'
+  | 'PAUSED'
   | 'VERIFYING'
   | 'COMPLETED'
   | 'FAILED'
   | 'RETRY'
-  | 'CANCELLED';
+  | 'CANCELLED'
+  | 'BLOCKED';
 
 export interface TaskAttemptRecord {
   readonly attemptNumber: number;
   readonly sessionId: string;
   readonly agentId: string;
+  readonly runId?: string;
+  readonly attemptId?: string;
+  readonly runtimeId?: string;
   readonly startedAt: Date;
   readonly endedAt?: Date;
-  readonly exitStatus: 'SUCCESS' | 'FAILURE' | 'ABORTED';
+  readonly exitStatus: 'SUCCESS' | 'FAILURE' | 'ABORTED' | 'BLOCKED' | 'TIMED_OUT';
   readonly error?: string;
   readonly outputSummary?: string;
+  readonly toolEventsCount?: number;
+  readonly verificationRunId?: string;
+  readonly evidenceId?: string;
 }
 
 export interface TaskArtifact {
@@ -54,12 +68,14 @@ export interface TaskRetryPolicy {
 
 export interface TaskStateRecord {
   readonly taskId: string;
+  readonly missionId?: string;
   readonly parentTaskId?: string;
   readonly tenantId: string;
   readonly title: string;
   readonly description: string;
   readonly assignedAgentId?: string;
   readonly assignedTeamId?: string;
+  readonly currentRunId?: string;
   readonly status: TaskStatus;
   readonly dependencies: readonly string[]; // IDs of tasks that MUST complete before this starts
   readonly dependents: readonly string[];   // IDs of tasks blocked by this task
@@ -76,15 +92,23 @@ export interface TaskStateRecord {
 
 export class TaskStateValidator {
   private static readonly VALID_TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
-    BACKLOG: ['PLANNED', 'CANCELLED'],
-    PLANNED: ['QUEUED', 'CANCELLED', 'BACKLOG'],
-    QUEUED: ['RUNNING', 'CANCELLED', 'PLANNED'],
-    RUNNING: ['VERIFYING', 'FAILED', 'RETRY', 'CANCELLED', 'COMPLETED'],
-    VERIFYING: ['COMPLETED', 'FAILED', 'RETRY', 'RUNNING'],
-    RETRY: ['QUEUED', 'RUNNING', 'FAILED', 'CANCELLED'],
+    DRAFT: ['UNDERSTANDING', 'PLANNING', 'BACKLOG', 'CANCELLED'],
+    UNDERSTANDING: ['PLANNING', 'AWAITING_CLARIFICATION', 'FAILED', 'CANCELLED'],
+    AWAITING_CLARIFICATION: ['UNDERSTANDING', 'PLANNING', 'CANCELLED'],
+    PLANNING: ['AWAITING_APPROVAL', 'PLANNED', 'QUEUED', 'BLOCKED', 'FAILED', 'CANCELLED'],
+    AWAITING_APPROVAL: ['QUEUED', 'PLANNED', 'BLOCKED', 'FAILED', 'CANCELLED'],
+    BACKLOG: ['PLANNING', 'PLANNED', 'CANCELLED'],
+    PLANNED: ['QUEUED', 'CANCELLED', 'BACKLOG', 'BLOCKED'],
+    QUEUED: ['RUNNING', 'EXECUTING', 'CANCELLED', 'PLANNED', 'BLOCKED'],
+    RUNNING: ['EXECUTING', 'PAUSED', 'VERIFYING', 'FAILED', 'RETRY', 'CANCELLED', 'COMPLETED', 'BLOCKED'],
+    EXECUTING: ['PAUSED', 'VERIFYING', 'FAILED', 'RETRY', 'CANCELLED', 'COMPLETED', 'BLOCKED'],
+    PAUSED: ['RUNNING', 'EXECUTING', 'CANCELLED', 'FAILED'],
+    VERIFYING: ['COMPLETED', 'FAILED', 'RETRY', 'RUNNING', 'EXECUTING'],
+    BLOCKED: ['PLANNING', 'QUEUED', 'RETRY', 'CANCELLED', 'FAILED'],
+    RETRY: ['QUEUED', 'RUNNING', 'EXECUTING', 'FAILED', 'CANCELLED'],
     COMPLETED: [],
-    FAILED: ['RETRY', 'PLANNED'], // Allows manual or policy-based retry restart
-    CANCELLED: ['PLANNED'],
+    FAILED: ['RETRY', 'PLANNING', 'PLANNED'], // Allows manual or policy-based retry restart
+    CANCELLED: ['PLANNING', 'PLANNED'],
   };
 
   public static canTransition(from: TaskStatus, to: TaskStatus): boolean {
@@ -106,11 +130,13 @@ export class TaskStateValidator {
     dependencies: readonly string[] = [],
     parentTaskId?: string,
     priority: 'CRITICAL' | 'HIGH' | 'NORMAL' | 'LOW' = 'NORMAL',
-    maxRetries: number = 3
+    maxRetries: number = 3,
+    missionId?: string
   ): TaskStateRecord {
     const now = new Date();
     return {
       taskId,
+      missionId,
       parentTaskId,
       tenantId,
       title,

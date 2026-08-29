@@ -108,12 +108,12 @@ export function evaluateShellPolicy(
 
   // 4. Catastrophic recursive deletion
   const dangerousRmPatterns = [
-    /\brm\s+-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*\s+[\/\\]\s*$/i, // rm -rf /
-    /\brm\s+-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*\s+\/\*\s*$/i, // rm -rf /*
-    /\brm\s+-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*\s+~\s*$/i, // rm -rf ~
-    /\brm\s+-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*\s+\.\s*$/i, // rm -rf .
-    /\brm\s+-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*\s+\*\s*$/i, // rm -rf *
-    /\bRemove-Item\s+.*-Recurse.*[\/\\]\s*$/i,
+    /\brm\s+-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*\s+[\/\\](?:\s|$)/i, // rm -rf /
+    /\brm\s+-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*\s+\/\*(?:\s|$)/i, // rm -rf /*
+    /\brm\s+-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*\s+~(?:\s|$)/i, // rm -rf ~
+    /\brm\s+-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*\s+\.(?:\s|$)/i, // rm -rf .
+    /\brm\s+-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*\s+\*(?:\s|$)/i, // rm -rf *
+    /\bRemove-Item\s+.*-Recurse.*[\/\\](?:\s|$)/i,
     /\bdel\s+\/f\s+\/s\s+\/q\s+[c-zC-Z]:\\/i,
   ];
 

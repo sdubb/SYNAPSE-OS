@@ -1,6 +1,22 @@
 import { z } from "zod";
 
 export const TaskStatusSchema = z.enum([
+  // Canonical frontend and backend execution states
+  "DRAFT",
+  "UNDERSTANDING",
+  "PLANNING",
+  "AWAITING_CLARIFICATION",
+  "AWAITING_APPROVAL",
+  "QUEUED",
+  "EXECUTING",
+  "PAUSED",
+  "VERIFYING",
+  "COMPLETED",
+  "FAILED",
+  "CANCELLED",
+  "BLOCKED",
+  "RETRY",
+  // Legacy / lower-case compatibility
   "backlog",
   "planned",
   "authorized",
@@ -13,10 +29,23 @@ export const TaskStatusSchema = z.enum([
   "recovery",
   "retry",
   "cancelled",
+  "blocked",
 ]);
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 
-export const TaskPrioritySchema = z.enum(["low", "medium", "high", "critical", "emergency"]);
+export const TaskPrioritySchema = z.enum([
+  "low",
+  "medium",
+  "high",
+  "critical",
+  "emergency",
+  "LOW",
+  "NORMAL",
+  "MEDIUM",
+  "HIGH",
+  "CRITICAL",
+  "EMERGENCY",
+]);
 export type TaskPriority = z.infer<typeof TaskPrioritySchema>;
 
 export const DependencyTypeSchema = z.enum(["blocks", "requires_success", "parallel_with", "after"]);
@@ -58,7 +87,7 @@ export const MissionSchema = z.object({
   objective: z.string().min(1),
   context: z.record(z.string(), z.unknown()).default({}),
   constraints: z.array(z.string()).default([]),
-  status: z.enum(["draft", "active", "paused", "completed", "failed", "cancelled"]).default("active"),
+  status: z.enum(["draft", "active", "paused", "completed", "failed", "cancelled", "DRAFT", "ACTIVE", "PAUSED", "COMPLETED", "FAILED", "CANCELLED"]).default("active"),
   taskIds: z.array(z.string().uuid()).default([]),
   policies: z.array(z.string()).default([]),
   budgetUsd: z.number().nonnegative().optional(),
@@ -68,16 +97,88 @@ export const MissionSchema = z.object({
 export type Mission = z.infer<typeof MissionSchema>;
 
 /**
- * Task Run: A single execution attempt of a task
+ * Task Attempt: A concrete execution attempt within a Task Run
+ */
+export const TaskAttemptSchema = z.object({
+  id: z.string().uuid(),
+  runId: z.string().uuid(),
+  taskId: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  agentId: z.string().uuid(),
+  attemptNumber: z.number().int().positive().default(1),
+  status: z.enum([
+    "QUEUED",
+    "STARTING",
+    "EXECUTING",
+    "WAITING_APPROVAL",
+    "PAUSED",
+    "VERIFYING",
+    "COMPLETED",
+    "FAILED",
+    "CANCELLED",
+    "TIMED_OUT",
+    "BLOCKED",
+    "SUCCESS",
+    "FAILURE",
+    "ABORTED",
+    // lowercase
+    "queued",
+    "starting",
+    "running",
+    "waiting_approval",
+    "paused",
+    "verifying",
+    "completed",
+    "failed",
+    "cancelled",
+    "timed_out",
+    "blocked",
+  ]).default("QUEUED"),
+  runtimeId: z.string().uuid().optional(),
+  clineSessionId: z.string().optional(),
+  startedAt: z.string().datetime().default(() => new Date().toISOString()),
+  endedAt: z.string().datetime().optional(),
+  toolEventsCount: z.number().int().nonnegative().default(0),
+  tokenUsage: z.object({
+    provider: z.string().optional(),
+    modelId: z.string().optional(),
+    promptTokens: z.number().int().nonnegative().default(0),
+    completionTokens: z.number().int().nonnegative().default(0),
+    cachedTokens: z.number().int().nonnegative().optional(),
+    reasoningTokens: z.number().int().nonnegative().optional(),
+    totalTokens: z.number().int().nonnegative().default(0),
+    estimatedCostUsd: z.number().nonnegative().default(0),
+  }).default({ promptTokens: 0, completionTokens: 0, totalTokens: 0, estimatedCostUsd: 0 }),
+  verificationRunId: z.string().uuid().optional(),
+  evidenceId: z.string().uuid().optional(),
+  error: z.string().optional(),
+  metadata: z.record(z.string(), z.unknown()).default({}),
+});
+export type TaskAttempt = z.infer<typeof TaskAttemptSchema>;
+
+/**
+ * Task Run: A single logical execution run of a task, containing 1..N attempts
  */
 export const TaskRunSchema = z.object({
   id: z.string().uuid(),
   taskId: z.string().uuid(),
   tenantId: z.string().uuid(),
   agentId: z.string().uuid(),
+  missionId: z.string().uuid().optional(),
   clineSessionId: z.string().optional(),
   runNumber: z.number().int().positive().default(1),
   status: z.enum([
+    "QUEUED",
+    "STARTING",
+    "EXECUTING",
+    "WAITING_APPROVAL",
+    "PAUSED",
+    "VERIFYING",
+    "COMPLETED",
+    "FAILED",
+    "CANCELLED",
+    "BLOCKED",
+    // lowercase
     "queued",
     "starting",
     "running",
@@ -89,14 +190,18 @@ export const TaskRunSchema = z.object({
     "failed",
     "cancelled",
     "terminated",
+    "blocked",
   ]).default("queued"),
+  currentAttemptId: z.string().uuid().optional(),
+  attempts: z.array(TaskAttemptSchema).default([]),
   startedAt: z.string().datetime().default(() => new Date().toISOString()),
   endedAt: z.string().datetime().optional(),
   tokenUsage: z.object({
     promptTokens: z.number().int().nonnegative().default(0),
     completionTokens: z.number().int().nonnegative().default(0),
+    totalTokens: z.number().int().nonnegative().default(0),
     totalCostUsd: z.number().nonnegative().default(0),
-  }).default({ promptTokens: 0, completionTokens: 0, totalCostUsd: 0 }),
+  }).default({ promptTokens: 0, completionTokens: 0, totalTokens: 0, totalCostUsd: 0 }),
   verificationId: z.string().uuid().optional(),
   evidenceId: z.string().uuid().optional(),
   error: z.string().optional(),

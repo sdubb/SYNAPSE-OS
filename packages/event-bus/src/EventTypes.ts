@@ -2,6 +2,8 @@ export type EventCategory =
   | 'agent'
   | 'session'
   | 'task'
+  | 'run'
+  | 'attempt'
   | 'tool'
   | 'policy'
   | 'governance'
@@ -21,11 +23,15 @@ export interface SynapseEventEnvelope<T = Record<string, unknown>> {
   eventId: string;
   eventType: string;
   tenantId: string;
+  missionId?: string;
   agentId?: string;
   sessionId?: string;
   taskId?: string;
+  runId?: string;
+  attemptId?: string;
   workspaceId?: string;
   runtimeId?: string;
+  userId?: string;
   timestamp: number;
   isoTimestamp: string;
   sequence: number;
@@ -39,11 +45,15 @@ export interface SynapseEventEnvelope<T = Record<string, unknown>> {
 export interface PublishEventInput<T = Record<string, unknown>> {
   eventType: string;
   tenantId: string;
+  missionId?: string;
   agentId?: string;
   sessionId?: string;
   taskId?: string;
+  runId?: string;
+  attemptId?: string;
   workspaceId?: string;
   runtimeId?: string;
+  userId?: string;
   source?: string;
   payload: T;
   traceId?: string;
@@ -57,8 +67,10 @@ export type EventHandler<T = Record<string, unknown>> = (
 
 export interface SubscriptionFilter {
   tenantId?: string;
+  missionId?: string;
   agentId?: string;
   taskId?: string;
+  runId?: string;
   sessionId?: string;
   source?: string;
   traceId?: string;

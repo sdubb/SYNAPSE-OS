@@ -6,10 +6,15 @@ import {
 export interface CreateApprovalRequestOptions {
   id?: string;
   tenantId: string;
+  userId?: string;
   sessionId: string;
   agentId: string;
+  missionId?: string;
   taskId?: string;
+  runId?: string;
+  attemptId?: string;
   workspaceId?: string;
+  runtimeId?: string;
   clineSessionId: string;
   callId: string;
   toolName: string;
@@ -35,10 +40,15 @@ export interface ApprovalDecisionRecord {
 export interface SanitizedApprovalRequest {
   id: string;
   tenantId: string;
+  userId?: string;
   sessionId: string;
   agentId: string;
+  missionId?: string;
   taskId?: string;
+  runId?: string;
+  attemptId?: string;
   workspaceId?: string;
+  runtimeId?: string;
   clineSessionId: string;
   callId: string;
   toolName: string;
@@ -70,10 +80,15 @@ export class ApprovalRequestFactory {
     return {
       id,
       tenantId: options.tenantId,
+      userId: options.userId ?? options.requesterUserId,
       sessionId: options.sessionId,
       agentId: options.agentId,
+      missionId: options.missionId,
       taskId: options.taskId,
+      runId: options.runId,
+      attemptId: options.attemptId,
       workspaceId: options.workspaceId,
+      runtimeId: options.runtimeId,
       clineSessionId: options.clineSessionId,
       callId: options.callId,
       toolName: options.toolName,
@@ -84,7 +99,7 @@ export class ApprovalRequestFactory {
       timeoutSeconds,
       expiresAt,
       createdAt: now.toISOString(),
-      requesterUserId: options.requesterUserId,
+      requesterUserId: options.userId ?? options.requesterUserId,
       sanitizedSummary: summary,
       decisions: [],
       requiredApprovals: requiredApprovers,

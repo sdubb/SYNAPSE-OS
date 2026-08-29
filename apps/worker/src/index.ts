@@ -1,5 +1,6 @@
 export * from './queues/QueueInterface.js';
 export * from './queues/InMemoryQueue.js';
+export * from './queues/DurableJobQueue.js';
 export * from './queues/RedisQueue.js';
 export * from './recovery/RetryPolicy.js';
 export * from './recovery/DeadLetterQueue.js';

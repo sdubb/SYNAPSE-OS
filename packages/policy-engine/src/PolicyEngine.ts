@@ -15,7 +15,11 @@ export class PolicyEngine {
   private globalEvaluator: PolicyEvaluator;
 
   constructor(options?: PolicyEngineOptions) {
-    this.globalEvaluator = new PolicyEvaluator(options);
+    this.globalEvaluator = new PolicyEvaluator({
+      defaultDecision: "ALLOW",
+      defaultRiskLevel: "LOW",
+      ...options,
+    });
 
     if (options?.tenantConfigs) {
       for (const [tenantId, config] of options.tenantConfigs) {

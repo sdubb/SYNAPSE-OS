@@ -14,11 +14,16 @@ import { ResourceLimitsTracker, ResourceLimitsConfig } from './ResourceLimits.js
 export interface CreateRuntimeOptions {
   readonly agentId: string;
   readonly sessionId: string;
-  readonly taskId?: string;
   readonly tenantId: string;
+  readonly missionId?: string;
+  readonly taskId?: string;
+  readonly runId?: string;
+  readonly attemptId?: string;
+  readonly clineSessionId?: string;
   readonly workspaceRoot: string;
   readonly allowedSubdirectories?: readonly string[];
   readonly readOnlyPaths?: readonly string[];
+  readonly capabilities?: readonly string[];
   readonly resourceLimits?: Partial<ResourceLimitsConfig>;
   readonly priority?: TaskPriority;
   readonly pid?: number;
@@ -89,10 +94,15 @@ export class RuntimeManager extends EventEmitter {
       instanceId,
       agentId: options.agentId,
       sessionId: options.sessionId,
-      taskId: options.taskId,
       tenantId: options.tenantId,
+      missionId: options.missionId,
+      taskId: options.taskId,
+      runId: options.runId,
+      attemptId: options.attemptId,
+      clineSessionId: options.clineSessionId,
       workspaceIsolation,
       resourceLimits,
+      capabilities: options.capabilities,
       pid: options.pid,
       metadata: options.metadata,
     });
@@ -111,7 +121,15 @@ export class RuntimeManager extends EventEmitter {
       this.handleInstanceTerminated(instanceId);
     });
 
-    this.emit('runtime_created', { instanceId, sessionId: options.sessionId, tenantId: options.tenantId });
+    this.emit('runtime_created', {
+      instanceId,
+      sessionId: options.sessionId,
+      tenantId: options.tenantId,
+      agentId: options.agentId,
+      taskId: options.taskId,
+      runId: options.runId,
+      attemptId: options.attemptId,
+    });
     return instance;
   }
 
@@ -124,15 +142,35 @@ export class RuntimeManager extends EventEmitter {
     return this.runtimes.get(instanceId);
   }
 
+  public getRuntimeByTask(taskId: string): RuntimeInstance | undefined {
+    for (const inst of this.runtimes.values()) {
+      if (inst.taskId === taskId) return inst;
+    }
+    return undefined;
+  }
+
+  public getRuntimeByAttempt(attemptId: string): RuntimeInstance | undefined {
+    for (const inst of this.runtimes.values()) {
+      if (inst.attemptId === attemptId) return inst;
+    }
+    return undefined;
+  }
+
   public listRuntimes(filter?: {
     tenantId?: string;
     agentId?: string;
+    missionId?: string;
+    taskId?: string;
+    runId?: string;
     status?: RuntimeStatus;
   }): readonly RuntimeInstance[] {
     const result: RuntimeInstance[] = [];
     for (const inst of this.runtimes.values()) {
       if (filter?.tenantId && inst.tenantId !== filter.tenantId) continue;
       if (filter?.agentId && inst.agentId !== filter.agentId) continue;
+      if (filter?.missionId && inst.missionId !== filter.missionId) continue;
+      if (filter?.taskId && inst.taskId !== filter.taskId) continue;
+      if (filter?.runId && inst.runId !== filter.runId) continue;
       if (filter?.status && inst.getStatus() !== filter.status) continue;
       result.push(inst);
     }
@@ -163,6 +201,7 @@ export class RuntimeManager extends EventEmitter {
       return false;
     }
 
+    // Terminating emits 'terminated', which invokes handleInstanceTerminated exactly once
     instance.terminate(signal);
     this.handleInstanceTerminated(instanceId);
     return true;
@@ -194,6 +233,10 @@ export class RuntimeManager extends EventEmitter {
   }
 
   private handleInstanceTerminated(instanceId: string): void {
+    if (!this.runtimes.has(instanceId)) {
+      return; // Idempotency guard: prevents double cleanup
+    }
+
     this.healthMonitor.unregisterInstance(instanceId);
     const slotId = this.instanceToSlot.get(instanceId);
     if (slotId) {

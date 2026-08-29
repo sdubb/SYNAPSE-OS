@@ -21,10 +21,15 @@ export interface RuntimeInstanceConfig {
   readonly instanceId: string;
   readonly agentId: string;
   readonly sessionId: string;
-  readonly taskId?: string;
   readonly tenantId: string;
+  readonly missionId?: string;
+  readonly taskId?: string;
+  readonly runId?: string;
+  readonly attemptId?: string;
+  readonly clineSessionId?: string;
   readonly workspaceIsolation: WorkspaceIsolation;
   readonly resourceLimits?: ResourceLimitsTracker;
+  readonly capabilities?: readonly string[];
   readonly pid?: number;
   readonly metadata?: Record<string, unknown>;
 }
@@ -33,10 +38,15 @@ export class RuntimeInstance extends EventEmitter implements MonitoredInstanceTa
   public readonly instanceId: string;
   public readonly agentId: string;
   public readonly sessionId: string;
-  public readonly taskId?: string;
   public readonly tenantId: string;
+  public readonly missionId?: string;
+  public readonly taskId?: string;
+  public readonly runId?: string;
+  public readonly attemptId?: string;
+  public readonly clineSessionId?: string;
   public readonly workspaceIsolation: WorkspaceIsolation;
   public readonly resourceLimits: ResourceLimitsTracker;
+  public readonly capabilities: readonly string[];
   public readonly pid?: number;
   public readonly metadata: Readonly<Record<string, unknown>>;
 
@@ -56,10 +66,15 @@ export class RuntimeInstance extends EventEmitter implements MonitoredInstanceTa
     this.instanceId = config.instanceId;
     this.agentId = config.agentId;
     this.sessionId = config.sessionId;
-    this.taskId = config.taskId;
     this.tenantId = config.tenantId;
+    this.missionId = config.missionId;
+    this.taskId = config.taskId;
+    this.runId = config.runId;
+    this.attemptId = config.attemptId;
+    this.clineSessionId = config.clineSessionId;
     this.workspaceIsolation = config.workspaceIsolation;
     this.resourceLimits = config.resourceLimits ?? new ResourceLimitsTracker();
+    this.capabilities = Object.freeze(config.capabilities ? [...config.capabilities] : []);
     this.pid = config.pid;
     this.metadata = Object.freeze(config.metadata ? { ...config.metadata } : {});
 

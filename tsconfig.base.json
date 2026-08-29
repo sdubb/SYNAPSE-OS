@@ -58,7 +58,9 @@
       "@synapse/twin-engine": ["./packages/twin-engine/dist/index.d.ts"],
       "@synapse/twin-engine/*": ["./packages/twin-engine/dist/*.d.ts"],
       "@synapse/simulation-engine": ["./packages/simulation-engine/dist/index.d.ts"],
-      "@synapse/simulation-engine/*": ["./packages/simulation-engine/dist/*.d.ts"]
+      "@synapse/simulation-engine/*": ["./packages/simulation-engine/dist/*.d.ts"],
+      "@synapse/tool-gateway": ["./packages/tool-gateway/dist/index.d.ts"],
+      "@synapse/tool-gateway/*": ["./packages/tool-gateway/dist/*.d.ts"]
     }
   }
 }

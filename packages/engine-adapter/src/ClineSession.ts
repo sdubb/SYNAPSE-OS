@@ -9,10 +9,43 @@ export interface ClineSessionInitOptions {
   clineSessionId: string;
   tenantId: string;
   agentId: string;
+  missionId?: string;
   taskId?: string;
+  runId?: string;
+  attemptId?: string;
   workspaceId: string;
+  workspacePath?: string;
   runtimeId: string;
   cline: ClineCore;
+  modelConfig?: {
+    provider?: string;
+    modelId?: string;
+    inputPricePer1M?: number;
+    outputPricePer1M?: number;
+  };
+}
+
+export type SessionExecutionStatus =
+  | "INITIALIZING"
+  | "ACTIVE"
+  | "PAUSED"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELLED"
+  | "TIMED_OUT";
+
+export interface SessionCompletionResult {
+  readonly status: "COMPLETED" | "FAILED" | "CANCELLED" | "TIMED_OUT" | "STILL_RUNNING";
+  readonly messages: Array<{
+    type: string;
+    content: string;
+    toolName?: string;
+    timestamp: number;
+    metadata?: Record<string, unknown>;
+  }>;
+  readonly tokenUsage: TokenUsage;
+  readonly checkpoints: string[];
+  readonly error?: string;
 }
 
 export class ClineSession {
@@ -20,13 +53,25 @@ export class ClineSession {
   readonly clineSessionId: string;
   readonly tenantId: string;
   readonly agentId: string;
+  readonly missionId?: string;
   readonly taskId?: string;
+  readonly runId?: string;
+  readonly attemptId?: string;
   readonly workspaceId: string;
+  readonly workspacePath?: string;
   readonly runtimeId: string;
 
   private readonly cline: ClineCore;
   private readonly eventAdapter: ClineEventAdapter;
   private readonly approvalBridge: ClineApprovalBridge;
+  private readonly modelConfig: {
+    provider: string;
+    modelId: string;
+    inputPricePer1M: number;
+    outputPricePer1M: number;
+  };
+
+  private status: SessionExecutionStatus = "INITIALIZING";
   private tokenUsage: TokenUsage = {
     promptTokens: 0,
     completionTokens: 0,
@@ -35,8 +80,12 @@ export class ClineSession {
   };
   private checkpoints: string[] = [];
   private isEnded = false;
+  private completionStatus: "COMPLETED" | "FAILED" | "CANCELLED" = "COMPLETED";
+  private completionError?: string;
   private completionResolve?: () => void;
   private completionPromise: Promise<void>;
+  private activeStreamBuffer = "";
+
   private collectedMessages: Array<{
     type: string;
     content: string;
@@ -50,10 +99,21 @@ export class ClineSession {
     this.clineSessionId = options.clineSessionId;
     this.tenantId = options.tenantId;
     this.agentId = options.agentId;
+    this.missionId = options.missionId;
     this.taskId = options.taskId;
+    this.runId = options.runId;
+    this.attemptId = options.attemptId;
     this.workspaceId = options.workspaceId;
+    this.workspacePath = options.workspacePath;
     this.runtimeId = options.runtimeId;
     this.cline = options.cline;
+
+    this.modelConfig = {
+      provider: options.modelConfig?.provider || "openrouter",
+      modelId: options.modelConfig?.modelId || "auto",
+      inputPricePer1M: options.modelConfig?.inputPricePer1M ?? 3.0,
+      outputPricePer1M: options.modelConfig?.outputPricePer1M ?? 15.0,
+    };
 
     this.approvalBridge = new ClineApprovalBridge(options.tenantId);
     this.eventAdapter = new ClineEventAdapter(options.cline, {
@@ -69,88 +129,93 @@ export class ClineSession {
       this.completionResolve = resolve;
     });
 
+    this.status = "ACTIVE";
     this.setupInternalEventListeners();
   }
 
   private setupInternalEventListeners(): void {
     this.eventAdapter.subscribe((envelope: SynapseEventEnvelope) => {
-      // 1. Collect streaming text chunks
-      //    EventMapper maps Cline "chunk" → "session.chunk" with { stream, chunk, timestamp }
-      if (envelope.eventType === "session.chunk") {
-        const payload = envelope.payload as { stream?: string; chunk?: string; text?: string };
-        const text = payload.chunk || payload.text;
-        if (text) {
-          this.collectedMessages.push({
-            type: 'assistant',
-            content: text,
-            timestamp: envelope.timestamp,
-            metadata: { stream: payload.stream },
-          });
+      // 1. Streaming chunks: buffer text without duplicating as assistant messages (Critical Requirement #11)
+      if (envelope.eventType === "session.chunk" || envelope.eventType === "stream.delta") {
+        const payload = envelope.payload as { stream?: string; chunk?: string; text?: string; delta?: string };
+        const deltaText = payload.chunk || payload.text || payload.delta || "";
+        if (deltaText) {
+          this.activeStreamBuffer += deltaText;
         }
       }
 
-      // 2. Collect assistant messages from agent_event → message
-      //    EventMapper maps Cline "agent_event" with message type → "session.message"
-      if (envelope.eventType === "session.message") {
+      // 2. Final message completed: append single consolidated message to collectedMessages
+      if (envelope.eventType === "session.message" || envelope.eventType === "message.completed") {
         const payload = envelope.payload as {
           event?: { type?: string; content?: string; message?: string; text?: string };
+          message?: { content?: string; text?: string };
+          content?: string;
         };
-        const evt = payload.event;
-        if (evt) {
-          const text = evt.content || evt.message || evt.text;
-          if (text) {
-            this.collectedMessages.push({
-              type: 'assistant',
-              content: text,
-              timestamp: envelope.timestamp,
-            });
-          }
+        const evt = payload.event || payload.message;
+        const text =
+          (evt as { content?: string; message?: string; text?: string } | undefined)?.content ||
+          (evt as { content?: string; message?: string; text?: string } | undefined)?.message ||
+          (evt as { content?: string; message?: string; text?: string } | undefined)?.text ||
+          payload.content ||
+          this.activeStreamBuffer;
+
+        if (text) {
+          this.collectedMessages.push({
+            type: "assistant",
+            content: text,
+            timestamp: envelope.timestamp,
+          });
         }
+        this.activeStreamBuffer = "";
       }
 
-      // 3. Collect tool execution events (from hook events)
-      if (envelope.eventType === "tool.executed") {
+      // 3. Tool execution events
+      if (envelope.eventType === "tool.executed" || envelope.eventType === "tool.completed") {
         const payload = envelope.payload as {
           toolName?: string;
           inputTokens?: number;
           outputTokens?: number;
-          hookEventName?: string;
+          durationMs?: number;
         };
         this.collectedMessages.push({
-          type: 'tool',
-          content: `Executed tool: ${payload.toolName || 'unknown'}`,
+          type: "tool",
+          content: `Executed tool: ${payload.toolName || "unknown"}`,
           toolName: payload.toolName,
           timestamp: envelope.timestamp,
+          metadata: { durationMs: payload.durationMs },
         });
 
-        // Account for token usage from hook events
+        // Model-aware token pricing calculation (Critical Requirement #14)
         const inp = payload.inputTokens ?? 0;
         const out = payload.outputTokens ?? 0;
         if (inp || out) {
           this.tokenUsage.promptTokens += inp;
           this.tokenUsage.completionTokens += out;
           this.tokenUsage.totalTokens = this.tokenUsage.promptTokens + this.tokenUsage.completionTokens;
-          this.tokenUsage.estimatedCostUsd = (this.tokenUsage.totalTokens / 1000) * 0.003;
+          const inputCost = (this.tokenUsage.promptTokens / 1_000_000) * this.modelConfig.inputPricePer1M;
+          const outputCost = (this.tokenUsage.completionTokens / 1_000_000) * this.modelConfig.outputPricePer1M;
+          this.tokenUsage.estimatedCostUsd = Number((inputCost + outputCost).toFixed(6));
         }
       }
 
-      // 4. Collect tool requests (tool_call from agent_event)
+      // 4. Tool request events
       if (envelope.eventType === "tool.requested") {
         const payload = envelope.payload as {
           toolName?: string;
           event?: { name?: string; arguments?: unknown };
+          arguments?: unknown;
         };
-        const toolName = payload.toolName || payload.event?.name || 'unknown';
+        const toolName = payload.toolName || payload.event?.name || "unknown";
         this.collectedMessages.push({
-          type: 'tool_call',
+          type: "tool_call",
           content: `Calling tool: ${toolName}`,
           toolName,
           timestamp: envelope.timestamp,
-          metadata: { arguments: payload.event?.arguments },
+          metadata: { arguments: payload.arguments || payload.event?.arguments },
         });
       }
 
-      // 5. Track checkpoint events
+      // 5. Checkpoints
       if (envelope.eventType === "session.checkpoint_created") {
         const payload = envelope.payload as { snapshotId?: string };
         if (payload.snapshotId && !this.checkpoints.includes(payload.snapshotId)) {
@@ -158,10 +223,18 @@ export class ClineSession {
         }
       }
 
-      // 6. Track session end and resolve completion promise
+      // 6. Session end / failure handling
       if (envelope.eventType === "session.ended") {
         this.isEnded = true;
+        this.status = "COMPLETED";
+        this.completionStatus = "COMPLETED";
         this.completionResolve?.();
+      }
+
+      if (envelope.eventType === "system.error" || envelope.eventType === "task.failed") {
+        const payload = envelope.payload as { error?: string; message?: string };
+        this.completionError = payload.error || payload.message || "Execution error encountered";
+        this.completionStatus = "FAILED";
       }
     });
   }
@@ -216,40 +289,71 @@ export class ClineSession {
   }
 
   /**
-   * Wait for the Cline session to complete execution.
-   * Resolves when the session ends or after timeoutMs (default 120s).
-   * Returns all collected messages from the execution.
+   * Get current status of the session.
    */
-  async waitForCompletion(timeoutMs = 120_000): Promise<{
-    messages: Array<{ type: string; content: string; toolName?: string; timestamp: number; metadata?: Record<string, unknown> }>;
-    tokenUsage: TokenUsage;
-    checkpoints: string[];
-  }> {
+  getStatus(): SessionExecutionStatus {
+    return this.status;
+  }
+
+  /**
+   * Wait for the Cline session to complete execution with explicit status discrimination (Critical Requirement #12).
+   */
+  async waitForCompletion(timeoutMs = 120_000): Promise<SessionCompletionResult> {
     if (this.isEnded) {
       return {
+        status: this.completionStatus,
         messages: [...this.collectedMessages],
         tokenUsage: { ...this.tokenUsage },
         checkpoints: [...this.checkpoints],
+        error: this.completionError,
       };
     }
 
+    let isTimedOut = false;
+    let timerHandle: NodeJS.Timeout | null = null;
+
     const timeoutPromise = new Promise<void>((resolve) => {
-      setTimeout(() => resolve(), timeoutMs);
+      timerHandle = setTimeout(() => {
+        isTimedOut = true;
+        resolve();
+      }, timeoutMs);
     });
 
     await Promise.race([this.completionPromise, timeoutPromise]);
 
+    if (timerHandle) {
+      clearTimeout(timerHandle);
+    }
+
+    if (isTimedOut && !this.isEnded) {
+      return {
+        status: "TIMED_OUT",
+        messages: [...this.collectedMessages],
+        tokenUsage: { ...this.tokenUsage },
+        checkpoints: [...this.checkpoints],
+        error: `Session execution timed out after ${timeoutMs}ms`,
+      };
+    }
+
     return {
+      status: this.completionStatus,
       messages: [...this.collectedMessages],
       tokenUsage: { ...this.tokenUsage },
       checkpoints: [...this.checkpoints],
+      error: this.completionError,
     };
   }
 
   /**
-   * Get all collected messages so far (non-blocking).
+   * Get all collected messages so far.
    */
-  getCollectedMessages(): Array<{ type: string; content: string; toolName?: string; timestamp: number; metadata?: Record<string, unknown> }> {
+  getCollectedMessages(): Array<{
+    type: string;
+    content: string;
+    toolName?: string;
+    timestamp: number;
+    metadata?: Record<string, unknown>;
+  }> {
     return [...this.collectedMessages];
   }
 
@@ -261,10 +365,11 @@ export class ClineSession {
   }
 
   /**
-   * Clean up session resources and listeners.
+   * Clean up session resources idempotently.
    */
   dispose(): void {
-    this.completionResolve?.();
+    this.isEnded = true;
+    this.status = "CANCELLED";
     this.approvalBridge.clear();
     this.eventAdapter.dispose();
   }

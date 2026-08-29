@@ -1,25 +1,33 @@
+import crypto from "node:crypto";
 import * as path from "node:path";
 import { ClineCore, type ClineCoreOptions, type RestoreResult } from "@cline/core";
 import type { StartSessionResult } from "@cline/core";
+import { ToolGateway, globalToolGateway } from "@synapse/tool-gateway";
 import { ClineSession } from "./ClineSession.js";
 import { ClineWorkspace } from "./ClineWorkspace.js";
 import { ClineTeam, type CreateTeamOptions } from "./ClineTeam.js";
 import { executeStart, executePause, executeResume, executeAbort, executeStop, executeRestart } from "./lifecycle/index.js";
 import { ClineSessionNotFoundError, ClineExecutionError, ClineCheckpointError } from "./errors/ClineEngineError.js";
-import type { SynapseEventEnvelope, TokenUsage } from "@synapse/contracts";
+import type { SynapseEventEnvelope } from "@synapse/contracts";
+import type { SessionCompletionResult } from "./ClineSession.js";
 
 export interface ClineEngineOptions {
   clientName?: string;
   defaultWorkspaceDirectory?: string;
   coreOptions?: ClineCoreOptions;
+  toolGateway?: ToolGateway;
 }
 
 export interface StartEngineSessionOptions {
   synapseSessionId?: string;
   tenantId: string;
   agentId: string;
+  missionId?: string;
   taskId?: string;
+  runId?: string;
+  attemptId?: string;
   workspaceId: string;
+  workspacePath?: string;
   runtimeId?: string;
   prompt: string;
   cwd: string;
@@ -27,13 +35,15 @@ export interface StartEngineSessionOptions {
     provider?: string;
     modelId?: string;
     apiKey?: string;
+    inputPricePer1M?: number;
+    outputPricePer1M?: number;
   };
   systemPrompt?: string;
   customInstructions?: string;
 }
 
 export interface ClineEngineHealthStatus {
-  readonly status: 'HEALTHY' | 'DEGRADED' | 'UNINITIALIZED' | 'FAILED';
+  readonly status: "HEALTHY" | "DEGRADED" | "UNINITIALIZED" | "FAILED";
   readonly isInitialized: boolean;
   readonly activeSessionCount: number;
   readonly activeWorkspaceCount: number;
@@ -50,11 +60,15 @@ export class ClineEngine {
   private isInitialized = false;
   private initError: string | undefined;
   private initializedAt: Date | undefined;
+  public readonly toolGateway: ToolGateway;
 
-  constructor(private readonly options: ClineEngineOptions = {}) {}
+  constructor(private readonly options: ClineEngineOptions = {}) {
+    this.toolGateway = options.toolGateway ?? globalToolGateway;
+  }
 
   /**
-   * Initialize native ClineCore instance and team engine.
+   * Initialize native ClineCore instance and wire authoritative Synapse Tool Gateway.
+   * NO UNCONDITIONAL AUTO-APPROVAL OR YOLO IN PRODUCTION EXECUTION PATH.
    */
   async initialize(): Promise<void> {
     if (this.isInitialized && this.cline) {
@@ -66,11 +80,10 @@ export class ClineEngine {
         clientName: this.options.clientName || "synapse-os",
         backendMode: "local",
         capabilities: {
-          // Auto-approve all tool calls for headless/programmatic use
-          requestToolApproval: (_request: any) => ({
-            approved: true,
-            reason: "auto-approved by Synapse Operator",
-          }),
+          // Authoritative tool execution interception layer
+          requestToolApproval: async (request: any) => {
+            return await this.handleClineToolApproval(request);
+          },
         },
         ...this.options.coreOptions,
       });
@@ -87,13 +100,60 @@ export class ClineEngine {
   }
 
   /**
+   * Intercepts tool requests originating from Cline execution substrate and delegates
+   * to Synapse ToolGateway (Policy -> Safety -> Capability -> Approval -> Workspace).
+   */
+  private async handleClineToolApproval(
+    request: any
+  ): Promise<{ approved: boolean; reason?: string; modifiedParameters?: Record<string, unknown> }> {
+    const sessionId = request.sessionId || request.conversationId;
+    const session = sessionId ? this.getSession(sessionId) : undefined;
+
+    const toolName = request.toolName || request.name || "unknown";
+    const toolParameters = (request.toolParameters || request.input || request.arguments || {}) as Record<string, unknown>;
+    const callId = request.callId || request.toolCallId || crypto.randomUUID();
+
+    const authResult = await this.toolGateway.evaluateAndAuthorizeToolCall({
+      tenantId: session?.tenantId || "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+      agentId: session?.agentId || request.agentId || "general-agent",
+      missionId: session?.missionId,
+      taskId: session?.taskId,
+      runId: session?.runId,
+      attemptId: session?.attemptId,
+      sessionId: session?.synapseSessionId || sessionId || crypto.randomUUID(),
+      clineSessionId: request.sessionId || sessionId,
+      workspaceId: session?.workspaceId,
+      workspaceRoot: session?.workspacePath || process.cwd(),
+      runtimeId: session?.runtimeId,
+      toolName,
+      toolArguments: toolParameters,
+      callId,
+    });
+
+    if (!authResult.authorized) {
+      return {
+        approved: false,
+        reason: authResult.reason || "Action blocked by Synapse Governance",
+      };
+    }
+
+    return {
+      approved: true,
+      modifiedParameters: authResult.modifiedParameters,
+      reason: authResult.reason,
+    };
+  }
+
+  /**
    * Get current health status of the engine.
    */
   getHealth(): ClineEngineHealthStatus {
-    const status: ClineEngineHealthStatus['status'] =
-      this.isInitialized && this.cline ? 'HEALTHY'
-      : this.initError ? 'FAILED'
-      : 'UNINITIALIZED';
+    const status: ClineEngineHealthStatus["status"] =
+      this.isInitialized && this.cline
+        ? "HEALTHY"
+        : this.initError
+        ? "FAILED"
+        : "UNINITIALIZED";
 
     return {
       status,
@@ -121,7 +181,7 @@ export class ClineEngine {
   }
 
   /**
-   * Start a new managed Cline execution session.
+   * Start a new governed Cline execution session.
    */
   async startSession(options: StartEngineSessionOptions): Promise<{
     session: ClineSession;
@@ -135,43 +195,47 @@ export class ClineEngine {
     const modelId = options.modelConfig?.modelId || "openrouter/auto";
     const apiKey = options.modelConfig?.apiKey || process.env.OPENROUTER_API_KEY || "";
 
-    // 1. Start execution via lifecycle handler
+    // 1. Start execution via lifecycle handler without YOLO bypass
     const startResult = await executeStart({
       cline,
       input: {
         prompt: options.prompt,
         cwd: options.cwd,
-        workspaceRoot: options.cwd,
+        workspaceRoot: options.workspacePath || options.cwd,
         systemPrompt: options.systemPrompt ?? "You are a helpful autonomous coding assistant.",
         customInstructions: options.customInstructions ?? "",
         config: {
           providerId,
           modelId,
           apiKey,
-          yolo: true,
           systemPrompt: options.systemPrompt ?? "You are a helpful autonomous coding assistant.",
           customInstructions: options.customInstructions ?? "",
           enableTools: true,
           enableSpawnAgent: false,
           enableAgentTeams: false,
           cwd: options.cwd,
-          workspaceRoot: options.cwd,
+          workspaceRoot: options.workspacePath || options.cwd,
         } as any,
       },
     });
 
     const clineSessionId = startResult.sessionId;
 
-    // 2. Wrap into managed ClineSession handle
+    // 2. Wrap into managed ClineSession handle with full metadata
     const session = new ClineSession({
       synapseSessionId,
       clineSessionId,
       tenantId: options.tenantId,
       agentId: options.agentId,
+      missionId: options.missionId,
       taskId: options.taskId,
+      runId: options.runId,
+      attemptId: options.attemptId,
       workspaceId: options.workspaceId,
+      workspacePath: options.workspacePath || options.cwd,
       runtimeId,
       cline,
+      modelConfig: options.modelConfig,
     });
 
     this.activeSessions.set(synapseSessionId, session);
@@ -210,13 +274,9 @@ export class ClineEngine {
   }
 
   /**
-   * Wait for a session to complete and return its collected messages.
+   * Wait for a session to complete with explicit status discrimination.
    */
-  async waitForSessionCompletion(sessionId: string, timeoutMs?: number): Promise<{
-    messages: Array<{ type: string; content: string; toolName?: string; timestamp: number; metadata?: Record<string, unknown> }>;
-    tokenUsage: TokenUsage;
-    checkpoints: string[];
-  }> {
+  async waitForSessionCompletion(sessionId: string, timeoutMs?: number): Promise<SessionCompletionResult> {
     const session = this.requireSession(sessionId);
     return session.waitForCompletion(timeoutMs);
   }
@@ -266,7 +326,7 @@ export class ClineEngine {
   }
 
   /**
-   * Restart an existing session.
+   * Restart an existing session, spawning a new execution attempt handle.
    */
   async restartSession(
     sessionId: string,
@@ -291,8 +351,12 @@ export class ClineEngine {
       clineSessionId: startResult.sessionId,
       tenantId: session.tenantId,
       agentId: session.agentId,
+      missionId: session.missionId,
       taskId: session.taskId,
+      runId: session.runId,
+      attemptId: crypto.randomUUID(), // New attempt for restart
       workspaceId: session.workspaceId,
+      workspacePath: session.workspacePath,
       runtimeId: session.runtimeId,
       cline,
     });
@@ -362,7 +426,7 @@ export class ClineEngine {
   }
 
   /**
-   * Dispose all active sessions and clean up resources.
+   * Dispose all active sessions and clean up resources idempotently.
    */
   dispose(): void {
     for (const session of this.activeSessions.values()) {

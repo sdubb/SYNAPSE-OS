@@ -9,10 +9,11 @@ async function bootstrap() {
 
   // 0. Initialize Anti-Theft, Anti-Debugging & Integrity Security Guardian
   try {
-    const guardian = await initSecurityGuardian();
+    await initSecurityGuardian();
     logger.info(`[SecurityGuardian] Active runtime defenses online (Anti-Debug: true, Integrity: valid).`);
   } catch (err: unknown) {
-    logger.error('[SecurityGuardian] Security guardian startup anomaly:', err);
+    const errorObj = err instanceof Error ? err : new Error(String(err));
+    logger.error('[SecurityGuardian] Security guardian startup anomaly:', errorObj);
   }
 
   // 1. Connect to PostgreSQL first — all repositories depend on this
@@ -55,7 +56,8 @@ async function bootstrap() {
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 }
 
-bootstrap().catch((err) => {
-  logger.fatal('Backend REST API server startup failed:', err);
+bootstrap().catch((err: unknown) => {
+  const errorObj = err instanceof Error ? err : new Error(String(err));
+  logger.fatal('Backend REST API server startup failed:', errorObj);
   process.exit(1);
 });

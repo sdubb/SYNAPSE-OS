@@ -10,6 +10,7 @@ export const EvidenceKindSchema = z.enum([
   "SECURITY_SCAN_OUTPUT",
   "SCREENSHOT",
   "VERIFIER_TRANSCRIPT",
+  "TOOL_INVOCATION",
 ]);
 export type EvidenceKind = z.infer<typeof EvidenceKindSchema>;
 

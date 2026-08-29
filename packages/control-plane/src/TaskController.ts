@@ -20,6 +20,7 @@ import {
 
 export interface CreateTaskOptions {
   readonly taskId?: string;
+  readonly missionId?: string;
   readonly parentTaskId?: string;
   readonly tenantId: string;
   readonly title: string;
@@ -65,7 +66,8 @@ export class TaskController extends EventEmitter {
       options.dependencies ?? [],
       options.parentTaskId,
       options.priority ?? 'NORMAL',
-      options.maxRetries ?? 3
+      options.maxRetries ?? 3,
+      options.missionId
     );
 
     this.tasks.set(taskId, task);

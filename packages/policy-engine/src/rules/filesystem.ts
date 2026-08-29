@@ -62,7 +62,11 @@ export function evaluateFilesystemPolicy(
 
   // 2. Check for path traversal characters before normalization
   const containsTraversal = targetPathRaw.includes("..") || targetPathRaw.includes("%2e%2e");
-  const normalizedPath = path.normalize(path.resolve(targetPathRaw));
+  const workspaceRoot = context.workspaceRoot ?? (options?.allowedRoots && options.allowedRoots.length > 0 ? options.allowedRoots[0] : undefined);
+  const resolvedRoot = workspaceRoot ? path.normalize(path.resolve(workspaceRoot)) : process.cwd();
+  const normalizedPath = path.isAbsolute(targetPathRaw)
+    ? path.normalize(path.resolve(targetPathRaw))
+    : path.normalize(path.resolve(resolvedRoot, targetPathRaw));
 
   // 3. Sensitive OS root path access
   const blockedPaths = options?.blockedPaths ?? DEFAULT_BLOCKED_PATHS;
@@ -93,9 +97,7 @@ export function evaluateFilesystemPolicy(
   }
 
   // 5. Workspace Boundary Enforcement
-  const workspaceRoot = context.workspaceRoot ?? (options?.allowedRoots && options.allowedRoots.length > 0 ? options.allowedRoots[0] : undefined);
   if (workspaceRoot) {
-    const resolvedRoot = path.normalize(path.resolve(workspaceRoot));
     const relative = path.relative(resolvedRoot, normalizedPath);
     const isEscaping = relative.startsWith("..") || path.isAbsolute(relative);
 

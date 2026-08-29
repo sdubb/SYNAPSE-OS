@@ -13,6 +13,12 @@ export const SynapseEventTypeSchema = z.enum([
   "agent.aborted",
   "agent.failed",
 
+  // Stream & Message Semantics
+  "stream.delta",
+  "message.started",
+  "message.created",
+  "message.completed",
+
   // Session Lifecycle
   "session.initialized",
   "session.started",
@@ -35,14 +41,31 @@ export const SynapseEventTypeSchema = z.enum([
   "task.failed",
   "task.retry",
   "task.cancelled",
+  "task.blocked",
 
-  // Tool & MCP
+  // Run & Attempt Lifecycle
+  "run.started",
+  "run.paused",
+  "run.resumed",
+  "run.failed",
+  "run.completed",
+  "run.blocked",
+  "attempt.started",
+  "attempt.completed",
+  "attempt.failed",
+
+  // Tool & MCP Gateway
   "tool.requested",
+  "tool.authorized",
   "tool.policy_checked",
   "tool.approval_required",
   "tool.approved",
   "tool.rejected",
+  "tool.denied",
+  "tool.blocked",
+  "tool.started",
   "tool.executed",
+  "tool.completed",
   "tool.failed",
 
   // Policy & Governance
@@ -57,6 +80,8 @@ export const SynapseEventTypeSchema = z.enum([
   "verification.started",
   "verification.assertion_passed",
   "verification.assertion_failed",
+  "verification.passed",
+  "verification.failed",
   "verification.completed",
   "evidence.collected",
   "evidence.sealed",
@@ -96,12 +121,18 @@ export const SynapseEventSourceSchema = z.enum([
   "engine.cline",
   "engine.adapter",
   "control.plane",
+  "tool.gateway",
   "api",
   "verifier",
   "simulator",
   "scheduler",
   "policy.engine",
+  "safety.engine",
+  "approval.engine",
   "realtime.hub",
+  "backend",
+  "worker",
+  "worker.agent",
 ]);
 export type SynapseEventSource = z.infer<typeof SynapseEventSourceSchema>;
 
@@ -109,11 +140,15 @@ export const SynapseEventEnvelopeSchema = z.object({
   eventId: z.string().uuid(),
   eventType: SynapseEventTypeSchema,
   tenantId: z.string().uuid(),
+  missionId: z.string().uuid().optional(),
   agentId: z.string().uuid().optional(),
   sessionId: z.string().uuid().optional(),
   taskId: z.string().uuid().optional(),
+  runId: z.string().uuid().optional(),
+  attemptId: z.string().uuid().optional(),
   workspaceId: z.string().uuid().optional(),
   runtimeId: z.string().uuid().optional(),
+  userId: z.string().uuid().optional(),
   timestamp: z.number().int().positive().default(() => Date.now()),
   isoTimestamp: z.string().datetime().default(() => new Date().toISOString()),
   sequence: z.number().int().nonnegative(),

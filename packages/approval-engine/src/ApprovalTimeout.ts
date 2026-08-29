@@ -27,6 +27,7 @@ export class ApprovalTimeoutMonitor {
     this.timer = setInterval(() => {
       void this.checkExpiredRequests();
     }, this.intervalMs);
+    this.timer.unref?.();
   }
 
   public stop(): void {

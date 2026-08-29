@@ -75,11 +75,14 @@ export class ApprovalResolver {
       throw new Error(`User '${approver.userId}' has already submitted a decision for this request`);
     }
 
+    const normalizedDecision: "APPROVED" | "REJECTED" =
+      decisionInput.decision.toUpperCase() === "APPROVED" ? "APPROVED" : "REJECTED";
+
     const decisionRecord: ApprovalDecisionRecord = {
       decidedByUserId: approver.userId,
       decidedByUserEmail: approver.userEmail,
       decidedByRole: approver.role,
-      decision: decisionInput.decision,
+      decision: normalizedDecision,
       reason: decisionInput.reason,
       modifiedParameters: decisionInput.modifiedParameters,
       decidedAt: new Date().toISOString(),
@@ -88,7 +91,7 @@ export class ApprovalResolver {
     request.decisions.push(decisionRecord);
 
     // If REJECTED, immediately terminate request with rejection
-    if (decisionInput.decision === "REJECTED") {
+    if (normalizedDecision === "REJECTED") {
       request.status = "rejected";
       request.resolvedAt = new Date().toISOString();
       await this.store.update(request);

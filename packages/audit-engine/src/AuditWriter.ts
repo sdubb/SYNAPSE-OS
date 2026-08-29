@@ -169,13 +169,12 @@ export class AuditWriter {
       throw new Error(`AuditWriter queue limit exceeded (${this.maxQueueSize}). Backpressure triggered.`);
     }
 
-    return new Promise<AuditRecord>((resolve, reject) => {
+    const promise = new Promise<AuditRecord>((resolve, reject) => {
       this.queue.push({ payload, resolve, reject });
-
-      if (this.queue.length >= this.batchSize) {
-        void this.flush();
-      }
     });
+
+    void this.flush();
+    return promise;
   }
 
   public async flush(): Promise<void> {
@@ -254,7 +253,7 @@ export class AuditWriter {
       }
     } finally {
       this.isFlushing = false;
-      if (this.queue.length >= this.batchSize) {
+      if (this.queue.length > 0) {
         void this.flush();
       }
     }
@@ -267,6 +266,7 @@ export class AuditWriter {
         this.scheduleFlush();
       });
     }, this.flushIntervalMs);
+    this.flushTimer?.unref?.();
   }
 
   public getQueueLength(): number {

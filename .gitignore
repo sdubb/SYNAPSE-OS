@@ -8,3 +8,6 @@ coverage/
 .DS_Store
 logs/
 *.log
+.synapse_queue/
+.synapse_workspaces/
+.synapse_storage/

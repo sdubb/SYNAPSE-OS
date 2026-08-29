@@ -1,5 +1,5 @@
 {
-  "name": "@synapse/engine-adapter",
+  "name": "@synapse/tool-gateway",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -21,14 +21,17 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@cline/agents": "*",
-    "@cline/core": "*",
-    "@cline/llms": "*",
-    "@cline/shared": "*",
-    "@synapse/contracts": "*",
-    "@synapse/database": "*",
-    "@synapse/tenancy": "*",
-    "@synapse/tool-gateway": "*",
+    "@synapse/contracts": "workspace:*",
+    "@synapse/policy-engine": "workspace:*",
+    "@synapse/safety-engine": "workspace:*",
+    "@synapse/approval-engine": "workspace:*",
+    "@synapse/capabilities": "workspace:*",
+    "@synapse/evidence": "workspace:*",
+    "@synapse/audit-engine": "workspace:*",
+    "@synapse/event-bus": "workspace:*",
+    "@synapse/observability": "workspace:*",
+    "@synapse/secrets": "workspace:*",
+    "@synapse/tenancy": "workspace:*",
     "zod": "^3.24.2"
   },
   "devDependencies": {

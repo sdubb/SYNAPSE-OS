@@ -63,6 +63,26 @@ export class AgentController extends EventEmitter {
     const agent = this.registry.getOrThrow(input.agentId);
     let state = this.getOrCreateState(input.agentId, input.tenantId);
 
+    // Check if agent is already active in this exact session (idempotency)
+    if (
+      state.status === 'RUNNING' &&
+      input.customSessionId &&
+      state.currentSessionId === input.customSessionId &&
+      state.runtimeInstanceId
+    ) {
+      return {
+        success: true,
+        executionId: `exec-existing-${state.currentSessionId}`,
+        sessionId: state.currentSessionId,
+        agentId: input.agentId,
+        tenantId: input.tenantId,
+        runtimeInstanceId: state.runtimeInstanceId,
+        workspacePath: state.allocatedWorkspacePath || input.workspaceRoot,
+        startedAt: state.lastActiveAt || new Date(),
+        isExisting: true,
+      };
+    }
+
     // Validate state transition to RUNNING
     AgentStateValidator.validateTransition(state.status, 'INITIALIZING');
     this.transitionStatus(state, 'INITIALIZING', 'Starting agent execution');
@@ -95,11 +115,15 @@ export class AgentController extends EventEmitter {
       const runtimeInstance = await this.runtimeManager.createRuntime({
         agentId: input.agentId,
         sessionId,
-        taskId: input.taskId,
         tenantId: input.tenantId,
+        missionId: input.missionId,
+        taskId: input.taskId,
+        runId: input.runId,
+        attemptId: input.attemptId,
         workspaceRoot: workspacePath,
         allowedSubdirectories: input.allowedSubdirectories,
         readOnlyPaths: input.readOnlyPaths,
+        capabilities: input.capabilities,
         priority: input.priority,
         metadata: input.metadata,
       });
