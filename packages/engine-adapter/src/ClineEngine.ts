@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import * as path from "node:path";
-import { ClineCore, type ClineCoreOptions, type RestoreResult } from "@cline/core";
+import { ClineCore, type ClineCoreOptions } from "@cline/core";
 import type { StartSessionResult } from "@cline/core";
 import { ToolGateway, globalToolGateway } from "@synapse/tool-gateway";
 import { ClineSession } from "./ClineSession.js";
@@ -10,6 +10,8 @@ import { executeStart, executePause, executeResume, executeAbort, executeStop, e
 import { ClineSessionNotFoundError, ClineExecutionError, ClineCheckpointError } from "./errors/ClineEngineError.js";
 import type { SynapseEventEnvelope } from "@synapse/contracts";
 import type { SessionCompletionResult } from "./ClineSession.js";
+import { getGraphTools } from "./graph/GraphTools.js";
+import { ExecutionGraphEngine } from "@synapse/control-plane";
 
 export interface SessionMetadata {
   tenantId: string;
@@ -57,6 +59,7 @@ export interface StartEngineSessionOptions {
   };
   systemPrompt?: string;
   customInstructions?: string;
+  graphEngine?: ExecutionGraphEngine;
 }
 
 export interface ClineEngineHealthStatus {
@@ -80,6 +83,7 @@ export class ClineEngine {
   private initError: string | undefined;
   private initializedAt: Date | undefined;
   public readonly toolGateway: ToolGateway;
+  public graphEngine?: ExecutionGraphEngine;
   
   // Cache to store authorization context between requestToolApproval and actual execution
   private readonly pendingToolCalls = new Map<string, {
@@ -378,6 +382,9 @@ export class ClineEngine {
     session: ClineSession;
     startResult: StartSessionResult;
   }> {
+    if (options.graphEngine) {
+      this.graphEngine = options.graphEngine;
+    }
     const cline = this.getCline();
     const synapseSessionId = options.synapseSessionId || crypto.randomUUID();
     const runtimeId = options.runtimeId || crypto.randomUUID();
@@ -402,11 +409,14 @@ export class ClineEngine {
           systemPrompt: options.systemPrompt ?? "You are a helpful autonomous coding assistant.",
           customInstructions: options.customInstructions ?? "",
           enableTools: true,
-          enableSpawnAgent: false,
-          enableAgentTeams: false,
+          enableSpawnAgent: true,
+          enableAgentTeams: true,
           cwd: options.cwd,
           workspaceRoot: options.workspacePath || options.cwd,
         } as any,
+        localRuntime: {
+          extraTools: this.graphEngine ? getGraphTools(this.graphEngine) : []
+        } as any
       },
     });
 
@@ -564,7 +574,7 @@ export class ClineEngine {
   /**
    * Restore a checkpoint in ClineCore.
    */
-  async restoreCheckpoint(sessionId: string, checkpointId: string): Promise<RestoreResult> {
+  async restoreCheckpoint(sessionId: string, checkpointId: string): Promise<any> {
     const session = this.requireSession(sessionId);
     const cline = this.getCline();
     try {
