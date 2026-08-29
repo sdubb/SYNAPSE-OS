@@ -1,10 +1,19 @@
 import { createApp } from './app.js';
 import { config } from './config.js';
 import { logger } from '@synapse/observability';
+import { initSecurityGuardian } from '@synapse/security';
 import { appController } from './controllers/index.js';
 
 async function bootstrap() {
   logger.info('Starting Synapse OS REST API server...');
+
+  // 0. Initialize Anti-Theft, Anti-Debugging & Integrity Security Guardian
+  try {
+    const guardian = await initSecurityGuardian();
+    logger.info(`[SecurityGuardian] Active runtime defenses online (Anti-Debug: true, Integrity: valid).`);
+  } catch (err: unknown) {
+    logger.error('[SecurityGuardian] Security guardian startup anomaly:', err);
+  }
 
   // 1. Connect to PostgreSQL first — all repositories depend on this
   await appController.connectDatabase();

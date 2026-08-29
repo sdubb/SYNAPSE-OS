@@ -1,0 +1,70 @@
+SYNAPSE OPERATING SYSTEM PROPRIETARY SOURCE LICENSE & ANTI-TAMPER AGREEMENT
+Version 1.0 — Commercial & Proprietary (All Rights Reserved)
+Copyright (c) 2026 SYNAPSE OS. All Rights Reserved.
+
+================================================================================
+IMPORTANT — READ CAREFULLY BEFORE ACCESSING, VIEWING, OR RUNNING THIS CODEBASE
+================================================================================
+
+This software and its associated documentation, architectural specifications, 
+algorithms, data models, and assets (collectively, the "Software") are the strictly
+confidential and proprietary intellectual property of the Copyright Holder.
+
+1. PROPRIETARY OWNERSHIP & RESERVATION OF ALL RIGHTS
+   All title, ownership, patents, trademarks, copyrights, trade secrets, and all
+   other intellectual property rights in and to the Software are and shall remain
+   the exclusive property of the Copyright Holder. No title or ownership rights
+   are transferred or assigned to any party under any circumstances.
+
+2. STRICT PROHIBITION ON COPYING, DISTRIBUTION & MODIFICATION
+   You may NOT, directly or indirectly:
+   (a) Copy, reproduce, clone, mirror, redistribute, publish, transmit, or display
+       the Software or any portion thereof;
+   (b) Modify, translate, adapt, alter, fork, or create derivative works of the Software;
+   (c) Sell, rent, lease, sublicense, distribute, assign, host, offer as a cloud
+       service (SaaS/PaaS/IaaS), API, or otherwise commercially exploit the Software;
+   (d) Strip, modify, obscure, or remove any copyright notices, watermarks, canary
+       tokens, or proprietary markings embedded within the Software.
+
+3. STRICT PROHIBITION ON REVERSE ENGINEERING, DEBUGGING & EXTRACTION
+   You may NOT, directly or indirectly:
+   (a) Reverse engineer, decompile, disassemble, trace, introspect, memory-dump,
+       or attempt to reconstruct or discover the source code, underlying ideas,
+       algorithms, file formats, or programming interfaces of any compiled, bundled,
+       or obfuscated portions;
+   (b) Attach interactive debuggers, memory inspectors, dynamic binary instrumentation
+       tools (e.g., Frida, IDA, Ghidra, V8 Inspector, Charles, Wireshark, ptrace)
+       for the purpose of unauthorized extraction, replication, or vulnerability hunting;
+   (c) Scrape, ingest, or feed any part of the Software into any artificial intelligence,
+       large language model (LLM), or machine learning model for training, fine-tuning,
+       code completion, or distillation without explicit written permission.
+
+4. ACTIVE INTEGRITY VERIFICATION, CANARY TRAPS & TAMPER TELEMETRY
+   NOTICE: This Software contains embedded runtime anti-debugging sensors, cryptographic
+   watermarks, honeytokens (canary keys), and automated tamper-detection beacons.
+   Any unauthorized attempt to:
+   - Attach interactive debuggers or inspectors;
+   - Harvest or inspect honeypot credentials;
+   - Modify security guardians or bypass safety kill-switches;
+   will automatically trigger forensic telemetry dispatch, system lockdown, and
+   permanent evidence logging. Such activities constitute an intentional and willful
+   breach of this Agreement.
+
+5. REMEDIES, LIQUIDATED DAMAGES & INJUNCTIVE RELIEF
+   Any unauthorized use, reproduction, theft, or breach of this Agreement constitutes
+   willful copyright infringement, trade secret misappropriation, and computer fraud.
+   In the event of a breach:
+   (a) The Copyright Holder is entitled to immediate injunctive relief in any court
+       of competent jurisdiction without the necessity of proving actual damages or
+       posting a bond;
+   (b) You shall be liable for all actual and statutory damages, including but not
+       limited to liquidated damages of $250,000 USD per violation, plus full recovery
+       of legal fees and investigation costs.
+
+6. GOVERNING LAW & JURISDICTION
+   This Agreement is governed by and construed in accordance with the laws of the
+   jurisdiction of the Copyright Holder, without regard to conflict of law principles.
+
+================================================================================
+UNAUTHORIZED COPYING, USE, REPRODUCTION, OR REDISTRIBUTION IS STRICTLY PROHIBITED.
+================================================================================

@@ -66,7 +66,7 @@ export const OperatorComposer: React.FC<OperatorComposerProps> = ({
       }
     }).catch(() => {
       // Fallback: try the DB models endpoint
-      apiClient.getModels().then((res: any) => {
+      apiClient.request<any[]>('/models').then((res) => {
         if (Array.isArray(res) && res.length > 0) {
           const enriched = res.filter((m: any) => m.enabled !== false).map((m: any) => ({
             modelId: m.modelId,
