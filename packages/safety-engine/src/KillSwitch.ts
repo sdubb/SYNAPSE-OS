@@ -24,6 +24,11 @@ export interface Level3Options {
 export class KillSwitch extends EventEmitter {
   private activeAbortControllers: Map<string, AbortController> = new Map();
   private stoppedSessions: Set<string> = new Set();
+  private stoppedAgents: Set<string> = new Set();
+  private stoppedRuntimes: Set<string> = new Set();
+  private stoppedTenants: Set<string> = new Set();
+  private globalStop = false;
+  
   private lockedWorkspaces: Set<string> = new Set();
   private revokedTokens: Set<string> = new Set();
 
@@ -79,8 +84,35 @@ export class KillSwitch extends EventEmitter {
     this.emit("kill:level2", event);
   }
 
+  // --- Granular Scopes (CR7) ---
+  
+  public stopAgent(agentId: string): void {
+    this.stoppedAgents.add(agentId);
+  }
+
+  public stopRuntime(runtimeId: string): void {
+    this.stoppedRuntimes.add(runtimeId);
+  }
+
+  public stopTenant(tenantId: string): void {
+    this.stoppedTenants.add(tenantId);
+  }
+
+  public stopGlobal(): void {
+    this.globalStop = true;
+  }
+
+  public isContextStopped(context: { sessionId?: string; agentId?: string; runtimeId?: string; tenantId?: string }): boolean {
+    if (this.globalStop) return true;
+    if (context.tenantId && this.stoppedTenants.has(context.tenantId)) return true;
+    if (context.runtimeId && this.stoppedRuntimes.has(context.runtimeId)) return true;
+    if (context.agentId && this.stoppedAgents.has(context.agentId)) return true;
+    if (context.sessionId && this.stoppedSessions.has(context.sessionId)) return true;
+    return false;
+  }
+
   public isSessionStopped(sessionId: string): boolean {
-    return this.stoppedSessions.has(sessionId);
+    return this.isContextStopped({ sessionId });
   }
 
   /**

@@ -28,11 +28,16 @@ export class SafetyPolicyPipeline {
     const killSwitch = this.safetyEngine.getKillSwitch();
 
     // 1. PRECEDENCE LEVEL 1: System Kill Switch Check
-    if (killSwitch.isSessionStopped(context.sessionId)) {
+    if (killSwitch.isContextStopped({
+      sessionId: context.sessionId,
+      agentId: context.agentId,
+      runtimeId: context.runtimeId,
+      tenantId: context.tenantId,
+    })) {
       return {
         authorized: false,
         decision: "BLOCK",
-        reason: `Execution halted: Session '${context.sessionId}' was stopped by Emergency Kill Switch Level 2`,
+        reason: `Execution halted: Context was stopped by Emergency Kill Switch (Level 2 or Scope kill)`,
         remediation: "Restart the session or revoke the emergency halt directive",
         riskLevel: "CRITICAL",
       };
@@ -100,6 +105,7 @@ export class SafetyPolicyPipeline {
     // 5. PRECEDENCE LEVEL 5: Capability Authorization
     const capCheck = this.capabilityAuthorizer.checkCapability(
       context.toolName,
+      context.agentId,
       context.allowedCapabilities
     );
     if (!capCheck.authorized) {

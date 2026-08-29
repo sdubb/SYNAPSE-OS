@@ -11,11 +11,28 @@ import { ClineSessionNotFoundError, ClineExecutionError, ClineCheckpointError } 
 import type { SynapseEventEnvelope } from "@synapse/contracts";
 import type { SessionCompletionResult } from "./ClineSession.js";
 
+export interface SessionMetadata {
+  tenantId: string;
+  agentId: string;
+  missionId?: string;
+  taskId?: string;
+  runId?: string;
+  attemptId?: string;
+  workspaceId?: string;
+  workspaceRoot?: string;
+  runtimeId?: string;
+}
+
+export interface SessionMetadataResolver {
+  resolveSession(sessionId: string): Promise<SessionMetadata | null>;
+}
+
 export interface ClineEngineOptions {
   clientName?: string;
   defaultWorkspaceDirectory?: string;
   coreOptions?: ClineCoreOptions;
   toolGateway?: ToolGateway;
+  sessionResolver?: SessionMetadataResolver;
 }
 
 export interface StartEngineSessionOptions {
@@ -52,6 +69,8 @@ export interface ClineEngineHealthStatus {
   readonly initializedAt: Date | undefined;
 }
 
+import { createDefaultExecutors, type ToolExecutors } from "@cline/core";
+
 export class ClineEngine {
   private cline: ClineCore | null = null;
   private readonly activeSessions = new Map<string, ClineSession>();
@@ -61,14 +80,68 @@ export class ClineEngine {
   private initError: string | undefined;
   private initializedAt: Date | undefined;
   public readonly toolGateway: ToolGateway;
+  
+  // Cache to store authorization context between requestToolApproval and actual execution
+  private readonly pendingToolCalls = new Map<string, {
+    token: any;
+    context: any;
+  }>();
 
   constructor(private readonly options: ClineEngineOptions = {}) {
     this.toolGateway = options.toolGateway ?? globalToolGateway;
   }
 
+  private createGovernedExecutors(): Partial<ToolExecutors> {
+    const defaultExecutors = createDefaultExecutors();
+    const governed: Partial<ToolExecutors> = {};
+
+    for (const [toolName, originalExecutor] of Object.entries(defaultExecutors)) {
+      governed[toolName as keyof ToolExecutors] = async (...args: any[]) => {
+        const agentContext = args[args.length - 1]; // AgentToolContext is always the last argument
+        const callId = agentContext.toolCallId;
+        
+        if (!callId) {
+          throw new Error(`Execution blocked: Missing toolCallId in AgentToolContext for tool '${toolName}'`);
+        }
+
+        const pending = this.pendingToolCalls.get(callId);
+        if (!pending) {
+          throw new Error(`Execution blocked: No authorization context found for call '${callId}'. ToolGateway must authorize first.`);
+        }
+
+        // Remove from cache to prevent replay
+        this.pendingToolCalls.delete(callId);
+
+        // Execute authoritatively through Synapse-OS ToolGateway
+        const result = await this.toolGateway.executeTool(
+          pending.context,
+          async () => await (originalExecutor as any)(...args),
+          pending.token
+        );
+
+        if (!result.success) {
+          throw new Error(`ToolGateway Execution Failed: ${result.error}`);
+        }
+
+        return result.output as any;
+      };
+    }
+
+    return governed;
+  }
+
   /**
    * Initialize native ClineCore instance and wire authoritative Synapse Tool Gateway.
-   * NO UNCONDITIONAL AUTO-APPROVAL OR YOLO IN PRODUCTION EXECUTION PATH.
+   *
+   * CRITICAL ARCHITECTURE (CR1): The requestToolApproval callback is the AUTHORITATIVE
+   * execution boundary. Synapse evaluates the tool call through the full governance
+   * pipeline AND captures an AuthorizationToken. When Cline receives `approved: true`,
+   * Synapse has already issued and recorded a cryptographically-bound authorization.
+   *
+   * The authorization token ensures:
+   * - Arguments cannot be mutated after authorization (hash binding)
+   * - The authorization cannot be replayed for a different call
+   * - Evidence and audit are captured for the authorization decision
    */
   async initialize(): Promise<void> {
     if (this.isInitialized && this.cline) {
@@ -84,6 +157,7 @@ export class ClineEngine {
           requestToolApproval: async (request: any) => {
             return await this.handleClineToolApproval(request);
           },
+          toolExecutors: this.createGovernedExecutors(),
         },
         ...this.options.coreOptions,
       });
@@ -101,7 +175,10 @@ export class ClineEngine {
 
   /**
    * Intercepts tool requests originating from Cline execution substrate and delegates
-   * to Synapse ToolGateway (Policy -> Safety -> Capability -> Approval -> Workspace).
+   * to Synapse ToolGateway (Kill Switch → Safety → Workspace → Policy → Capability → Approval → Allow).
+   *
+   * CR3: Missing tenant/agent context produces BLOCK — no synthetic identity fallback.
+   * CR2: Authorization decision is cryptographically bound to exact call parameters.
    */
   private async handleClineToolApproval(
     request: any
@@ -113,27 +190,141 @@ export class ClineEngine {
     const toolParameters = (request.toolParameters || request.input || request.arguments || {}) as Record<string, unknown>;
     const callId = request.callId || request.toolCallId || crypto.randomUUID();
 
-    const authResult = await this.toolGateway.evaluateAndAuthorizeToolCall({
-      tenantId: session?.tenantId || "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
-      agentId: session?.agentId || request.agentId || "general-agent",
-      missionId: session?.missionId,
-      taskId: session?.taskId,
-      runId: session?.runId,
-      attemptId: session?.attemptId,
-      sessionId: session?.synapseSessionId || sessionId || crypto.randomUUID(),
-      clineSessionId: request.sessionId || sessionId,
-      workspaceId: session?.workspaceId,
-      workspaceRoot: session?.workspacePath || process.cwd(),
-      runtimeId: session?.runtimeId,
+    // CR9: Session Map is Cache Only.
+    // If the session is missing from in-memory cache, fall back to authoritative resolver.
+    let tenantId = session?.tenantId;
+    let agentId = session?.agentId || request.agentId;
+    let missionId = session?.missionId;
+    let taskId = session?.taskId;
+    let runId = session?.runId;
+    let attemptId = session?.attemptId;
+    let workspaceId = session?.workspaceId;
+    let workspaceRoot = session?.workspacePath || this.options.defaultWorkspaceDirectory || "";
+    let runtimeId = session?.runtimeId;
+
+    if (!tenantId && sessionId && this.options.sessionResolver) {
+      const resolved = await this.options.sessionResolver.resolveSession(sessionId);
+      if (resolved) {
+        tenantId = resolved.tenantId;
+        agentId = resolved.agentId;
+        missionId = resolved.missionId;
+        taskId = resolved.taskId;
+        runId = resolved.runId;
+        attemptId = resolved.attemptId;
+        workspaceId = resolved.workspaceId;
+        workspaceRoot = resolved.workspaceRoot || workspaceRoot;
+        runtimeId = resolved.runtimeId;
+      }
+    }
+
+    // CR3: BLOCK if tenant/agent context cannot be resolved from session.
+    // NEVER fall back to synthetic default tenant or general-agent.
+    if (!tenantId) {
+      // Emit audit event for missing identity
+      this.toolGateway.eventBus.publish({
+        eventType: "tool.blocked",
+        tenantId: "UNKNOWN",
+        agentId: agentId || "UNKNOWN",
+        sessionId: sessionId || "UNKNOWN",
+        source: "tool.gateway",
+        payload: {
+          toolName,
+          callId,
+          reason: "BLOCKED: Missing tenant identity — no synthetic fallback permitted (CR3)",
+        },
+      });
+
+      void this.toolGateway.auditEngine.logSecurityEvent({
+        tenantId: "SYSTEM",
+        actor: { id: agentId || "UNKNOWN", type: "AGENT", tenantId: "SYSTEM" },
+        eventType: "tool.identity_missing",
+        severity: "CRITICAL",
+        targetId: toolName,
+        targetType: "TOOL",
+        details: {
+          callId,
+          reason: "Tool request blocked due to missing tenant identity. No synthetic default-tenant fallback.",
+          sessionId,
+        },
+      });
+
+      return {
+        approved: false,
+        reason: "BLOCKED: Cannot resolve tenant identity for this tool request. No synthetic identity fallback permitted.",
+      };
+    }
+
+    if (!agentId) {
+      void this.toolGateway.auditEngine.logSecurityEvent({
+        tenantId,
+        actor: { id: "UNKNOWN", type: "AGENT", tenantId },
+        eventType: "tool.identity_missing",
+        severity: "CRITICAL",
+        targetId: toolName,
+        targetType: "TOOL",
+        details: {
+          callId,
+          reason: "Tool request blocked due to missing agent identity.",
+          sessionId,
+        },
+      });
+
+      return {
+        approved: false,
+        reason: "BLOCKED: Cannot resolve agent identity for this tool request. No synthetic identity fallback permitted.",
+      };
+    }
+
+    const contextForExecution = {
+      tenantId,
+      agentId,
+      sessionId,
+      callId,
+      workspaceRoot,
       toolName,
       toolArguments: toolParameters,
-      callId,
+      missionId,
+      taskId,
+      runId,
+      attemptId,
+      workspaceId,
+      runtimeId,
+    };
+
+    const authResult = await this.toolGateway.evaluateAndAuthorizeToolCall({
+      ...contextForExecution,
+      sessionId: session?.synapseSessionId || sessionId || crypto.randomUUID(),
+      clineSessionId: request.sessionId || sessionId,
+      workspaceRoot: workspaceRoot || process.cwd(),
     });
 
     if (!authResult.authorized) {
       return {
         approved: false,
         reason: authResult.reason || "Action blocked by Synapse Governance",
+      };
+    }
+
+    if (authResult.authorized && authResult.authorizationToken) {
+      // Store token and context for the executor wrapper to consume
+      this.pendingToolCalls.set(callId, {
+        token: authResult.authorizationToken,
+        context: {
+          ...contextForExecution,
+          sessionId: session?.synapseSessionId || sessionId || crypto.randomUUID(),
+          clineSessionId: request.sessionId || sessionId,
+          workspaceRoot: workspaceRoot || process.cwd(),
+        },
+      });
+
+      if (session) {
+        session.recordAuthorizationToken(callId, authResult.authorizationToken);
+      }
+
+      // NOTE: We do not return the token to the client.
+      return {
+        approved: true,
+        modifiedParameters: authResult.modifiedParameters,
       };
     }
 

@@ -5,6 +5,17 @@ import { IQueue, Job, JobOptions } from './QueueInterface.js';
 import { RetryPolicy } from '../recovery/RetryPolicy.js';
 import { DeadLetterQueue } from '../recovery/DeadLetterQueue.js';
 
+/**
+ * A file-backed durable job queue for single-node development.
+ * 
+ * CR10 (Durable Queue Concurrency): Note that because this implementation relies on 
+ * an in-memory `Map` combined with non-atomic JSON file writes, it DOES NOT support
+ * cross-process atomicity or distributed concurrency. Two separate Node.js processes 
+ * reading the same directory could both reserve the same job before either persists 
+ * the updated lease state.
+ * 
+ * For production, use a Redis, Postgres, or SQS-backed queue implementation.
+ */
 export class DurableJobQueue<T = Record<string, unknown>> implements IQueue<T> {
   public readonly name: string;
   private readonly storageDir: string;

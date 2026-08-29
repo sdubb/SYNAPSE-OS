@@ -1,5 +1,6 @@
 import type { ClineCore, CoreSessionEvent } from "@cline/core";
 import type { TokenUsage, SynapseEventEnvelope } from "@synapse/contracts";
+import type { AuthorizationToken } from "@synapse/tool-gateway";
 import { ClineEventAdapter, type SynapseEventListener } from "./events/ClineEventAdapter.js";
 import { ClineApprovalBridge } from "./approvals/ClineApprovalBridge.js";
 import { ClineExecutionError } from "./errors/ClineEngineError.js";
@@ -29,13 +30,14 @@ export type SessionExecutionStatus =
   | "INITIALIZING"
   | "ACTIVE"
   | "PAUSED"
+  | "VERIFYING"
   | "COMPLETED"
   | "FAILED"
   | "CANCELLED"
   | "TIMED_OUT";
 
 export interface SessionCompletionResult {
-  readonly status: "COMPLETED" | "FAILED" | "CANCELLED" | "TIMED_OUT" | "STILL_RUNNING";
+  readonly status: "COMPLETED" | "VERIFYING" | "FAILED" | "CANCELLED" | "TIMED_OUT" | "STILL_RUNNING";
   readonly messages: Array<{
     type: string;
     content: string;
@@ -80,7 +82,7 @@ export class ClineSession {
   };
   private checkpoints: string[] = [];
   private isEnded = false;
-  private completionStatus: "COMPLETED" | "FAILED" | "CANCELLED" = "COMPLETED";
+  private completionStatus: "COMPLETED" | "VERIFYING" | "FAILED" | "CANCELLED" = "VERIFYING";
   private completionError?: string;
   private completionResolve?: () => void;
   private completionPromise: Promise<void>;
@@ -93,6 +95,10 @@ export class ClineSession {
     timestamp: number;
     metadata?: Record<string, unknown>;
   }> = [];
+
+  /** CR2: Authorization tokens pending consumption, keyed by callId */
+  private readonly pendingAuthorizationTokens = new Map<string, AuthorizationToken>();
+
 
   constructor(options: ClineSessionInitOptions) {
     this.synapseSessionId = options.synapseSessionId;
@@ -226,8 +232,10 @@ export class ClineSession {
       // 6. Session end / failure handling
       if (envelope.eventType === "session.ended") {
         this.isEnded = true;
-        this.status = "COMPLETED";
-        this.completionStatus = "COMPLETED";
+        // CR12: Verification Must Gate Completion. 
+        // Cline says done -> VERIFYING -> verification -> PASS -> COMPLETED
+        this.status = "VERIFYING";
+        this.completionStatus = "VERIFYING";
         this.completionResolve?.();
       }
 
@@ -289,10 +297,47 @@ export class ClineSession {
   }
 
   /**
+   * CR12: Transition the session from VERIFYING to COMPLETED or FAILED based on verification result.
+   */
+  markVerified(passed: boolean, reason?: string): void {
+    if (this.status !== "VERIFYING") {
+      throw new ClineExecutionError(`Cannot mark verified from status ${this.status}`);
+    }
+    
+    if (passed) {
+      this.status = "COMPLETED";
+      this.completionStatus = "COMPLETED";
+    } else {
+      this.status = "FAILED";
+      this.completionStatus = "FAILED";
+      this.completionError = reason || "Verification failed";
+    }
+  }
+
+  /**
    * Get current status of the session.
    */
   getStatus(): SessionExecutionStatus {
     return this.status;
+  }
+
+  /**
+   * CR2: Record an authorization token issued by ToolGateway for a specific call.
+   * This allows post-execution evidence to verify the authorization was valid.
+   */
+  recordAuthorizationToken(callId: string, token: AuthorizationToken): void {
+    this.pendingAuthorizationTokens.set(callId, token);
+  }
+
+  /**
+   * CR2: Retrieve and consume an authorization token for a call.
+   */
+  getAuthorizationToken(callId: string): AuthorizationToken | undefined {
+    const token = this.pendingAuthorizationTokens.get(callId);
+    if (token) {
+      this.pendingAuthorizationTokens.delete(callId);
+    }
+    return token;
   }
 
   /**

@@ -1,24 +1,44 @@
 import { CapabilityRegistry, globalCapabilityRegistry } from "@synapse/capabilities";
+import type { AgentRegistry } from "@synapse/agent-registry";
 
 export class CapabilityAuthorizer {
-  constructor(private readonly registry: CapabilityRegistry = globalCapabilityRegistry) {}
+  constructor(
+    private readonly agentRegistry?: AgentRegistry,
+    private readonly capabilityRegistry: CapabilityRegistry = globalCapabilityRegistry
+  ) {}
 
   /**
-   * Check if an agent has permission to execute the requested tool.
+   * Check if an agent has permission to execute the requested tool authoritatively.
    */
   public checkCapability(
     toolName: string,
-    allowedCapabilities?: readonly string[]
+    agentId: string,
+    callerAllowedCapabilities?: readonly string[]
   ): { authorized: boolean; reason?: string } {
-    // Map tool names to canonical capability IDs
     const capabilityId = this.resolveCapabilityId(toolName);
 
-    // If allowedCapabilities is specified, check against it
-    if (allowedCapabilities && allowedCapabilities.length > 0) {
+    // 1. Authoritative check via Agent Registry if available (CR4)
+    if (this.agentRegistry) {
+      const agent = this.agentRegistry.get(agentId);
+      
+      // If agent isn't registered, we might be in a dev/test stub scenario.
+      // But if it is registered, strictly enforce its configured capabilities.
+      if (agent) {
+        if (!agent.capabilities.isToolAllowed(toolName)) {
+          return {
+            authorized: false,
+            reason: `Agent '${agentId}' is missing authoritative capability to run tool '${toolName}' in the Agent Registry`,
+          };
+        }
+      }
+    } 
+    // 2. Fallback to caller-provided capabilities ONLY if registry check isn't strictly blocking
+    // (This is primarily for test compatibility where agents might not be registered)
+    else if (callerAllowedCapabilities && callerAllowedCapabilities.length > 0) {
       const isExplicitlyAllowed =
-        allowedCapabilities.includes(toolName) ||
-        allowedCapabilities.includes(capabilityId) ||
-        allowedCapabilities.includes("*");
+        callerAllowedCapabilities.includes(toolName) ||
+        callerAllowedCapabilities.includes(capabilityId) ||
+        callerAllowedCapabilities.includes("*");
 
       if (!isExplicitlyAllowed) {
         return {
@@ -28,8 +48,8 @@ export class CapabilityAuthorizer {
       }
     }
 
-    // Check registry: if registered and disabled
-    const capDef = this.registry.get(capabilityId);
+    // 3. Global Capability Registry System State
+    const capDef = this.capabilityRegistry.get(capabilityId);
     if (capDef && !capDef.enabled) {
       return {
         authorized: false,

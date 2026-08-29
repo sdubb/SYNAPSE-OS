@@ -152,22 +152,29 @@ async function runGovernanceExecutionVerification() {
   console.log('\n[TEST 3] Testing Authoritative Tool Execution & Cryptographic Evidence Capture...');
 
   let toolExecutedSuccessfully = false;
+  const test3Context = {
+    tenantId,
+    agentId: 'test-agent',
+    sessionId: 'sess-004',
+    callId: 'test-3-call',
+    workspaceRoot,
+    toolName: 'read_file',
+    toolArguments: { path: 'src/index.ts' },
+  };
+  
+  const test3Auth = await toolGateway.evaluateAndAuthorizeToolCall(test3Context);
+  assert(test3Auth.authorized, 'Test 3 Execution Authorized');
+
   const execResult = await toolGateway.executeTool(
-    {
-      tenantId,
-      agentId: 'test-agent',
-      sessionId: 'sess-004',
-      workspaceRoot,
-      toolName: 'read_file',
-      toolArguments: { path: 'src/index.ts' },
-    },
+    test3Context,
     async (ctx) => {
       toolExecutedSuccessfully = true;
       return 'export const version = "2.0.0"; // API_KEY=sk_secret_val_123';
-    }
+    },
+    test3Auth.authorizationToken
   );
 
-  assert(execResult.success, 'Tool Gateway Execution Succeeded', `Duration: ${execResult.durationMs}ms`);
+  assert(execResult.success, 'Tool Gateway Execution Succeeded', `Duration: ${execResult.durationMs}ms - Error: ${execResult.error}`);
   assert(toolExecutedSuccessfully, 'Tool Executor Routine Invoked Safely');
   assert(typeof execResult.evidenceId === 'string', 'Cryptographic Evidence Item Captured', `Evidence ID: ${execResult.evidenceId}`);
   assert(typeof execResult.auditEventId === 'string', 'Audit Record Created', `Audit ID: ${execResult.auditEventId}`);
@@ -362,6 +369,101 @@ async function runGovernanceExecutionVerification() {
   assert(emptyCheck === null, 'Job Cleanly Acked & Removed from Queue');
 
   await testQueue.clear();
+
+  // -------------------------------------------------------------
+  // TEST 8: THE MOST IMPORTANT TEST (CR14 Authoritative Execution)
+  // -------------------------------------------------------------
+  console.log('\n[TEST 8] The Most Important Test: Authoritative Execution Boundary...');
+  
+  let dangerousExecutionCount = 0;
+  const dangerousToolExecutor = async (ctx: any) => {
+    dangerousExecutionCount++;
+    return "BOOM";
+  };
+  
+  const test8Context = {
+    tenantId,
+    agentId: 'test-agent',
+    sessionId: 'sess-test8',
+    callId: 'call-test8',
+    workspaceRoot,
+    toolName: 'execute_command',
+    toolArguments: { command: 'docker system prune -a' },
+  };
+
+  // 8.1 Approval DENIED
+  console.log('Test 8.1 start');
+  const denyPromise = toolGateway.evaluateAndAuthorizeToolCall(test8Context);
+  await new Promise(r => setTimeout(r, 50));
+  const denyRequests = await approvalEngine.listPending(tenantId);
+  await approvalEngine.submitDecision({ tenantId, requestId: denyRequests[0].id, decision: 'DENIED', reason: 'Too dangerous' }, { userId: 'admin', role: 'ADMIN' });
+  
+  const denyResult = await denyPromise;
+  
+  assert(!denyResult.authorized && denyResult.decision === 'DENIED', 'Approval properly denied');
+
+  // Attacker tries to forge a token because they were denied
+  const fakeToken = {
+    tokenId: 'fake-token-id',
+    argumentsHash: 'fake-hash',
+    callId: 'call-test8',
+    toolName: 'execute_command',
+    tenantId,
+    agentId: 'test-agent',
+    sessionId: 'sess-test8',
+    policyVersion: '1.0',
+    authorizedAt: Date.now(),
+    expiresAt: Date.now() + 60000,
+    signature: 'fake-signature',
+  };
+
+  const denyExec = await toolGateway.executeTool(test8Context, dangerousToolExecutor, fakeToken);
+  
+  assert(!denyExec.success, 'DENIED Approval Prevents Execution (Fake Token Blocked)');
+  assert(dangerousExecutionCount === 0, 'Execution Count Remains 0 after DENIED');
+
+  // 8.2 Argument Mutation Attack
+  console.log('Test 8.2 start');
+  const attackContext = { ...test8Context, callId: 'attack-1' };
+  const attackPromise = toolGateway.evaluateAndAuthorizeToolCall(attackContext);
+  await new Promise(r => setTimeout(r, 50));
+  const attackRequests = await approvalEngine.listPending(tenantId);
+  console.log('Attack pending length:', attackRequests.length);
+  await approvalEngine.submitDecision({ tenantId, requestId: attackRequests[0].id, decision: 'APPROVED', reason: 'OK' }, { userId: 'admin', role: 'ADMIN' });
+  console.log('Attack submit done');
+  const attackAuth = await attackPromise;
+  console.log('Attack auth got');
+  assert(attackAuth.authorized, 'Attack auth granted for original args');
+  
+  // Attacker mutates the arguments AFTER authorization but BEFORE execution
+  const mutatedContext = { 
+    ...attackContext, 
+    toolArguments: { command: 'docker system prune -a --volumes' } // Mutated!
+  };
+  const attackExec = await toolGateway.executeTool(mutatedContext, dangerousToolExecutor, attackAuth.authorizationToken);
+  console.log('Attack exec done', attackExec.success, attackExec.error);
+  assert(!attackExec.success, 'Argument Mutation Attack Blocked (Hash Mismatch)');
+  assert(attackExec.error?.includes('argument hash mismatch') || false, 'Correct mismatch error');
+  assert(dangerousExecutionCount === 0, 'Execution Count Remains 0 after Mutation Attack');
+
+  // 8.3 Valid ALLOW
+  console.log('Test 8.3 start');
+  const validContext = { ...test8Context, callId: 'valid-1' };
+  const validPromise = toolGateway.evaluateAndAuthorizeToolCall(validContext);
+  await new Promise(r => setTimeout(r, 50));
+  const validRequests = await approvalEngine.listPending(tenantId);
+  await approvalEngine.submitDecision({ tenantId, requestId: validRequests[0].id, decision: 'APPROVED', reason: 'OK' }, { userId: 'admin', role: 'ADMIN' });
+  
+  const validAuth = await validPromise;
+  const validExec = await toolGateway.executeTool(validContext, dangerousToolExecutor, validAuth.authorizationToken);
+  
+  assert(validExec.success, 'Valid Authorized Execution Succeeded');
+  assert(dangerousExecutionCount === 1, 'Execution Count Incremented to EXACTLY 1');
+
+  // 8.4 Replay Attack
+  const replayExec = await toolGateway.executeTool(validContext, dangerousToolExecutor, validAuth.authorizationToken);
+  assert(!replayExec.success, 'Replay Attack Blocked (Token Consumed)');
+  assert(dangerousExecutionCount === 1, 'Execution Count Remains 1 after Replay Attempt');
 
   approvalEngine.shutdown();
   await eventBus.stop();
