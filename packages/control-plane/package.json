@@ -1,0 +1,22 @@
+{
+  "name": "@synapse/control-plane",
+  "version": "1.0.0",
+  "description": "Master orchestration, task DAG state machine, session correlation, agent lifecycle, and multi-agent team governance for Synapse OS",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@synapse/agent-registry": "*",
+    "@synapse/runtime-manager": "*"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  }
+}

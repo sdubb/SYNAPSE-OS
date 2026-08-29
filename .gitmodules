@@ -1,0 +1,3 @@
+[submodule "engine/cline"]
+	path = engine/cline
+	url = https://github.com/cline/cline.git

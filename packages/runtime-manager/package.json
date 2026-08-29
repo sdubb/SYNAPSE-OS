@@ -1,0 +1,21 @@
+{
+  "name": "@synapse/runtime-manager",
+  "version": "1.0.0",
+  "description": "Process allocation, execution sandboxing, resource limits, and health monitoring for Synapse OS",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@synapse/agent-registry": "*"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  }
+}

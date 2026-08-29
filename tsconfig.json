@@ -1,0 +1,37 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true
+  },
+  "files": [],
+  "include": [],
+  "references": [
+    { "path": "./packages/contracts" },
+    { "path": "./packages/capabilities" },
+    { "path": "./packages/tenancy" },
+    { "path": "./packages/secrets" },
+    { "path": "./packages/security" },
+    { "path": "./packages/evidence" },
+    { "path": "./packages/policy-engine" },
+    { "path": "./packages/approval-engine" },
+    { "path": "./packages/safety-engine" },
+    { "path": "./packages/verification-engine" },
+    { "path": "./packages/audit-engine" },
+    { "path": "./packages/event-bus" },
+    { "path": "./packages/observability" },
+    { "path": "./packages/database" },
+    { "path": "./packages/engine-adapter" },
+    { "path": "./packages/agent-registry" },
+    { "path": "./packages/runtime-manager" },
+    { "path": "./packages/control-plane" },
+    { "path": "./packages/world-engine" },
+    { "path": "./packages/twin-engine" },
+    { "path": "./packages/simulation-engine" },
+    { "path": "./packages/scheduler" },
+    { "path": "./packages/connector-manager" },
+    { "path": "./packages/external-agents" },
+    { "path": "./apps/realtime" },
+    { "path": "./apps/worker" },
+    { "path": "./apps/backend" }
+  ]
+}

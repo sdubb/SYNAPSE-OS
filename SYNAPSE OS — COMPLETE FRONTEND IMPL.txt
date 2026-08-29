@@ -1,0 +1,1536 @@
+SYNAPSE OS — COMPLETE FRONTEND IMPLEMENTATION SPEC
+0. Core product principle
+
+Synapse is:
+
+A human operating environment for autonomous AI work.
+
+Cline is the execution engine.
+
+Synapse provides:
+
+Intent
+↓
+Planning
+↓
+Policy
+↓
+Risk
+↓
+Approval
+↓
+Cline Execution
+↓
+Live Observation
+↓
+Human Intervention
+↓
+Verification
+↓
+Evidence
+↓
+Result
+
+The frontend must make this entire lifecycle understandable to a non-technical user.
+
+1. Global application shell
+
+Every authenticated screen uses:
+
+┌──────────────────────────────────────────────────────────────────────┐
+│ SYNAPSE                       Search / ⌘K              ● System  User │
+├────────────────┬─────────────────────────────────────────────────────┤
+│                │                                                     │
+│  COMMAND       │                                                     │
+│  ◉ Overview    │                                                     │
+│                │                                                     │
+│  OPERATE       │                    PAGE CONTENT                     │
+│  ◉ Operator    │                                                     │
+│  ○ Runs        │                                                     │
+│                │                                                     │
+│  BUILD         │                                                     │
+│  ○ Agents      │                                                     │
+│  ○ Tasks       │                                                     │
+│  ○ Teams       │                                                     │
+│  ○ Capabilities│                                                     │
+│  ○ Workspaces  │                                                     │
+│                │                                                     │
+│  WORLD         │                                                     │
+│  ○ World Studio│                                                     │
+│                │                                                     │
+│  TRUST         │                                                     │
+│  ○ Verification│                                                    │
+│  ○ Governance  │                                                     │
+│                │                                                     │
+│  SYSTEM        │                                                     │
+│  ○ Models      │                                                     │
+│  ○ Providers   │                                                     │
+│  ○ Settings    │                                                     │
+│                │                                                     │
+├────────────────┤                                                     │
+│ CLINE ENGINE   │                                                     │
+│ ● Connected    │                                                     │
+└────────────────┴─────────────────────────────────────────────────────┘
+Sidebar rules
+
+Do NOT expose backend implementation concepts such as:
+
+Event Bus
+Execution Manager
+ClineCore
+Policy Service
+Run Service
+Verification Engine
+
+Those are backend concepts.
+
+The user sees product concepts.
+
+2. Global top bar
+
+Top bar contains:
+
+Left
+
+Current location:
+
+Operator / Checkout Investigation
+Center/right
+
+Global search:
+
+⌘ K   Search Synapse...
+
+Search should eventually search:
+
+agents
+tasks
+runs
+teams
+workspaces
+worlds
+audit events
+Status
+● Synapse Healthy
+● Cline Ready
+
+Clicking status opens system health.
+
+User
+Avatar
+Name
+Organization
+3. Global command palette
+
+⌘K
+
+Must support actions such as:
+
+Create agent
+Create task
+Create team
+Start run
+Open running run
+Open approvals
+Search agents
+Search tasks
+Search workspaces
+Open World Studio
+Open settings
+
+Eventually natural-language commands:
+
+"Show me failed runs today"
+"Create an agent to monitor my website"
+"Open the payment investigation"
+
+But natural language must never bypass backend authorization.
+
+4. Global notification/attention system
+
+A global notification button:
+
+🔔 3
+
+Shows:
+
+ATTENTION REQUIRED
+
+⚠ Production database approval
+● Cline waiting for clarification
+✕ Verification failed
+
+Clicking an item opens the relevant Operator/Run state.
+
+5. / — Command Center
+
+Purpose:
+
+What should I do with Synapse?
+
+This is the high-level home screen.
+
+┌────────────────────────────────────────────────────────────────────┐
+│ Good morning                                                       │
+│                                                                    │
+│ What would you like Synapse to do?                                │
+│                                                                    │
+│ ┌────────────────────────────────────────────────────────────────┐ │
+│ │ Describe a task, investigation or goal...                      │ │
+│ └────────────────────────────────────────────────────────────────┘ │
+│                                                                    │
+│ [ Run Task ] [ Create Agent ] [ Create Team ] [ Explore World ]   │
+├────────────────────────────────────────────────────────────────────┤
+│                                                                    │
+│ ACTIVE                                                             │
+│                                                                    │
+│   4 Running       2 Waiting        1 Verifying       18 Today     │
+│                                                                    │
+├────────────────────────────────┬───────────────────────────────────┤
+│ ACTIVE WORK                     │ ATTENTION                         │
+│                                │                                   │
+│ Checkout investigation         │ ⚠ Approval required               │
+│ ● Cline working                │ ✕ Verification failed              │
+│                                │ ● Agent needs clarification         │
+│ Database optimization          │                                   │
+│ ● Running                      │                                   │
+├────────────────────────────────┴───────────────────────────────────┤
+│ RECENT WORK                                                        │
+│                                                                    │
+│ Task                       Agent             Result                 │
+│ Checkout fix               Developer         ✓ Verified             │
+│ Security audit             Security           ✕ Failed              │
+│ Data analysis              Research           ✓ Verified             │
+└────────────────────────────────────────────────────────────────────┘
+Important
+
+Command Center does not attempt to show everything.
+
+It is an overview and launchpad.
+
+6. /operator — PRIMARY SCREEN
+
+This is the most important screen in Synapse.
+
+Purpose:
+
+Watch, talk to, and control Cline while it works.
+
+Desktop layout
+┌─────────────────────────────────────────────────────────────────────────┐
+│ Operator                                      ● RUNNING   [•••]          │
+├───────────────────────────────┬─────────────────────────────────────────┤
+│                               │                                         │
+│ CONVERSATION                  │ WORKSPACE                               │
+│                               │                                         │
+│ You                           │ ┌─────────────────────────────────────┐ │
+│ Fix the checkout problem.     │ │                                     │ │
+│                               │ │        LIVE WORKSPACE               │ │
+│ Cline                         │ │                                     │ │
+│ I'll investigate the issue.  │ │       Application / Files /         │ │
+│                               │ │       Infrastructure / World        │ │
+│ ● Checking payment API        │ │                                     │ │
+│ ● Inspecting retry logic     │ │                                     │ │
+│                               │ │                                     │ │
+│ ✓ Found timeout problem       │ │                                     │ │
+│                               │ │                                     │ │
+│                               │ │                                     │ │
+│                               │ └─────────────────────────────────────┘ │
+│                               │                                         │
+├───────────────────────────────┴─────────────────────────────────────────┤
+│ RUN STATUS                                                            │
+│                                                                       │
+│ PLAN        ACTIVITY        CHANGES        TESTS        VERIFICATION   │
+│                                                                       │
+│ ✓ Understand                                                     │
+│ ✓ Investigate                                                    │
+│ ● Fix                                                          │
+│ ○ Test                                                          │
+│ ○ Verify                                                        │
+├─────────────────────────────────────────────────────────────────────────┤
+│ LIVE ACTIVITY                                                         │
+│                                                                       │
+│ ● Checking payment retry logic                                       │
+│   I'm checking the retry behavior because payment requests timeout. │
+│                                                                       │
+│   [Show technical evidence]                                         │
+│                                                                       │
+├─────────────────────────────────────────────────────────────────────────┤
+│ Ask Cline anything...                                                 │
+│ ┌───────────────────────────────────────────────────────────────────┐ │
+│ │ Tell Cline what to do next...                                     │ │
+│ └───────────────────────────────────────────────────────────────────┘ │
+│                                                                       │
+│ [Attach] [Mention]                         [Pause] [Stop] [Send]      │
+└───────────────────────────────────────────────────────────────────────┘
+7. Operator conversation panel
+
+The conversation is not simply a ChatGPT clone.
+
+Each Cline message can contain:
+
+summary
+reason
+actions
+evidence
+questions
+proposed changes
+approval request
+
+Example:
+
+┌─────────────────────────────────────────────┐
+│ 🔍 Investigating checkout                  │
+│                                             │
+│ I'm checking the payment API and retry      │
+│ behavior because checkout requests are      │
+│ timing out.                                 │
+│                                             │
+│ ✓ Checkout component inspected              │
+│ ✓ Payment API inspected                     │
+│ ● Checking retry behavior                   │
+│                                             │
+│ [Technical details ▾]                       │
+└─────────────────────────────────────────────┘
+
+Never expose hidden chain-of-thought.
+
+Show:
+
+what Cline is doing
+
+and:
+
+why that action is relevant
+
+not internal reasoning.
+
+8. Technical details drawer
+
+When user clicks:
+
+Technical details
+
+show:
+
+TECHNICAL EVIDENCE
+
+Files read
+────────────────────────
+src/checkout/Checkout.tsx
+src/payment/PaymentService.ts
+
+Commands
+────────────────────────
+npm test
+
+Tests
+────────────────────────
+12 passed
+
+Changes
+────────────────────────
+2 files modified
+
+Cline session
+────────────────────────
+cl_xxxxx
+
+Tools
+────────────────────────
+read_files
+run_commands
+editor
+
+This lets technical users inspect everything without overwhelming normal users.
+
+9. Operator workspace
+
+The right side is dynamic.
+
+Never hard-code one visualization.
+
+Workspace renderer can be:
+
+WebPreview
+FileTree
+DiffViewer
+TerminalOutput
+TestResults
+InfrastructureGraph
+DataViewer
+Database
+Logs
+Metrics
+WorldGraph
+Simulation
+
+The backend tells the frontend which renderer is appropriate.
+
+10. Web Preview
+
+When Cline changes a web application:
+
+┌────────────────────────────────────────────┐
+│ PREVIEW                                    │
+├────────────────────────────────────────────┤
+│                                            │
+│          LIVE APPLICATION                  │
+│                                            │
+│     Dashboard                              │
+│                                            │
+│     Revenue      Orders      Users         │
+│                                            │
+│     ┌──────────────────────────────┐       │
+│     │ Annual Plan                  │       │
+│     │ $99/year                     │       │
+│     └──────────────────────────────┘       │
+│                                            │
+└────────────────────────────────────────────┘
+
+The user can visually see the result.
+
+11. Diff Viewer
+
+Never force a nontechnical user to understand Git.
+
+Show:
+
+CHANGES
+
+Checkout page
+
+Before
+────────────
+[old interface]
+
+After
+────────────
+[new interface]
+
+2 files changed
+148 lines changed
+
+✓ Tests passed
+✓ No policy violations
+
+Technical users can switch to:
+
+Code Diff
+12. Plan panel
+
+Every consequential task gets a plan.
+
+PLAN
+
+Objective
+Fix checkout failure
+
+1 ✓ Investigate checkout
+2 ✓ Find timeout
+3 ● Modify retry logic
+4 ○ Run tests
+5 ○ Verify
+6 ○ Prepare deployment
+
+Risk
+MEDIUM
+
+Environment
+Development
+
+Click any step to see activity/evidence.
+
+13. User intervention
+
+The input box supports normal language.
+
+Examples:
+
+"Stop."
+
+"Don't modify the database."
+
+"Use the staging environment instead."
+
+"Show me what you changed."
+
+"Try another approach."
+
+"Pause until I review this."
+
+"Deploy this when verification passes."
+
+These become Synapse control requests, not direct Cline tool calls.
+
+14. Operator action bar
+
+Depending on state:
+
+Planning
+[Edit Plan]
+[Approve]
+[Cancel]
+Executing
+[Pause]
+[Stop]
+[Send Instruction]
+Approval
+[Reject]
+[Approve Once]
+[Approve]
+Verification
+[Review Evidence]
+Completed
+[View Result]
+[Deploy]
+[Create Follow-up]
+Failed
+[Retry]
+[Revise Plan]
+[Investigate]
+15. Run state machine
+
+Frontend must understand these states:
+
+DRAFT
+UNDERSTANDING
+PLANNING
+AWAITING_CLARIFICATION
+AWAITING_APPROVAL
+EXECUTING
+PAUSED
+VERIFYING
+COMPLETED
+FAILED
+CANCELLED
+BLOCKED
+
+Don't create arbitrary frontend-only states.
+
+Backend is authoritative.
+
+16. /runs
+
+Purpose:
+
+Find and inspect all executions.
+
+RUNS
+
+[Search] [Filters]
+
+Status:
+All | Running | Waiting | Verification | Completed | Failed
+
+┌────────────────────────────────────────────────────────────┐
+│ Checkout investigation                                    │
+│ Developer Agent                                           │
+│ ● Running                                                 │
+│ 8m 32s                                                    │
+└────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────┐
+│ Security audit                                            │
+│ Security Agent                                            │
+│ ✓ Verified                                                │
+│ 14m                                                       │
+└────────────────────────────────────────────────────────────┘
+17. Run Detail
+
+Tabs:
+
+Overview
+Live
+Timeline
+Conversation
+Tools
+Files
+Changes
+Approvals
+Usage
+Verification
+Audit
+
+This is the technical deep-dive.
+
+Operator is the easy experience.
+
+Run Detail is the forensic experience.
+
+18. /agents
+
+Purpose:
+
+Create and manage arbitrary agents.
+
+No hard-coded agent types.
+
+AGENTS
+
+[+ Create Agent]
+
+Search...
+
+┌───────────────────────────────────────┐
+│ Website Monitor                       │
+│ Custom Agent                          │
+│                                       │
+│ Capabilities                          │
+│ Web · HTTP · Notifications            │
+│                                       │
+│ ● Ready                               │
+│                                       │
+│ [Open] [Run]                          │
+└───────────────────────────────────────┘
+19. /agents/create
+
+Use a progressive form.
+
+Step 1 — Intent
+What should this agent do?
+
+"Monitor my company's website and investigate outages."
+Step 2 — Identity
+Name
+Description
+Instructions
+Role
+Step 3 — Capabilities
+
+Dynamic registry:
+
+☐ GitHub
+☐ PostgreSQL
+☐ Browser
+☐ AWS
+☐ Slack
+☐ Filesystem
+☐ HTTP
+Step 4 — Workspace
+Workspace
+Environment
+Repositories
+Step 5 — Policies
+Allowed actions
+Blocked actions
+Approval requirements
+Step 6 — Verification
+Required tests
+Evidence requirements
+Verification policy
+Step 7 — Limits
+Maximum runtime
+Maximum cost
+Concurrency
+Step 8 — Review
+AGENT CONFIGURATION
+
+[Create Agent]
+20. /agents/:id
+
+Tabs:
+
+Overview
+Configuration
+Capabilities
+Tasks
+Runs
+Policies
+Usage
+Audit
+21. /tasks
+
+Two modes:
+
+LIST
+BOARD
+
+Board:
+
+BACKLOG
+READY
+RUNNING
+WAITING
+VERIFYING
+REVIEW
+COMPLETED
+FAILED
+
+Again, status comes from backend state/events.
+
+22. Create Task
+CREATE TASK
+
+What needs to be done?
+
+┌──────────────────────────────────────────────┐
+│                                             │
+│ Fix the checkout timeout issue.             │
+│                                             │
+└──────────────────────────────────────────────┘
+
+Workspace
+[ Development ▼ ]
+
+Execution
+○ Single Agent
+○ Team
+○ Let Synapse choose
+
+Verification
+[ Automatic ▼ ]
+
+[Review Plan]
+
+Then show:
+
+PROPOSED EXECUTION
+
+Agent
+Developer Agent
+
+Capabilities
+✓ Files
+✓ Shell
+✓ Git
+
+Environment
+Development
+
+Risk
+Medium
+
+Verification
+Tests + Diff + Policy
+
+[Cancel] [Approve & Run]
+23. /teams
+
+Dynamic team management.
+
+TEAMS
+
+[+ Create Team]
+
+Payment Platform
+● Running
+5 agents
+23 tasks
+
+Research Team
+● Idle
+3 agents
+24. Create Team
+
+Two modes.
+
+Explicit
+Mission
+
+Build payment system.
+
+Members
+
++ Add Agent
+Autonomous
+Mission
+
+Build payment system.
+
+☑ Allow Cline coordinator to create teammates
+
+Maximum teammates
+[10]
+
+Require approval for new teammates
+☑
+
+No fixed roles.
+
+25. Team topology
+
+Visual graph:
+
+                    MISSION
+                       │
+                       ▼
+                 COORDINATOR
+                 /     |      \
+                /      |       \
+               ▼       ▼        ▼
+            Agent A Agent B  Agent C
+               │       │        │
+             Tasks   Tasks    Tasks
+
+Nodes must represent real runtime/team state.
+
+Click node:
+
+Agent
+Current task
+Cline session
+Status
+Activity
+Usage
+Verification
+26. /verification
+
+This is the Trust Center.
+
+VERIFICATION
+
+12 Completed
+8 Passed
+2 Failed
+2 Review
+
+Task                      Verdict
+
+Checkout fix              ✓ PASS
+Database migration        ⚠ REVIEW
+Security audit            ✕ FAIL
+27. Verification detail
+VERIFICATION
+
+Verdict
+✓ PASS
+
+Objective
+Fix checkout timeout
+
+Evidence
+
+✓ Tests: 12/12
+✓ Files validated
+✓ Git diff validated
+✓ API test passed
+✓ Policy validation passed
+
+Agent claim
+
+"Checkout is fixed."
+
+Ground truth
+
+Verified
+
+Important:
+
+Agent claim ≠ evidence.
+
+28. /governance/approvals
+
+Live approval inbox.
+
+APPROVALS
+
+HIGH RISK
+
+Database Agent
+
+Wants to execute:
+
+ALTER TABLE production.users ...
+
+Target
+Production database
+
+Risk
+CRITICAL
+
+Reason
+Schema migration
+
+Affected resources
+production-db
+
+[Reject]
+[Approve Once]
+[Approve]
+29. /governance/policies
+
+Visual policy builder:
+
+POLICY
+
+Production Database
+
+WHEN
+agent = *
+
+AND
+environment = production
+
+AND
+operation = database.write
+
+THEN
+
+require approval
+
+Do not make users write JSON unless they want advanced mode.
+
+30. /governance/audit
+
+Timeline:
+
+AUDIT
+
+13:02 Agent started
+13:03 Repository accessed
+13:05 File modified
+13:06 Test executed
+13:08 Approval requested
+13:09 Approved
+13:10 Deployment started
+13:12 Verification passed
+
+Filters:
+
+Agent
+User
+Task
+Run
+Resource
+Risk
+Action
+Date
+31. /world
+
+World Engine entry point.
+
+WORLD STUDIO
+
+[+ Create World]
+
+Production Architecture
+● Live
+
+Customer Journey
+● Live
+
+Agent Network
+● Live
+32. World Studio
+
+The visual canvas should support:
+
+Entities
+Relationships
+Events
+State
+Dependencies
+Time
+
+Toolbar:
+
+LIVE
+SIMULATE
+SCENARIOS
+TIME TRAVEL
+COMPARE
+
+Example:
+
+             API
+              │
+        ┌─────┴─────┐
+        ▼           ▼
+    Payment       Orders
+        │           │
+        └─────┬─────┘
+              ▼
+           Database
+33. Simulation mode
+
+User:
+
+"What happens if the payment service goes offline?"
+
+UI:
+
+SCENARIO
+
+Payment Service
+Status → OFFLINE
+
+Duration
+14 minutes
+
+[Run Simulation]
+
+Result:
+
+SIMULATION RESULT
+
+Expected failed payments
++32%
+
+Orders affected
+1,240
+
+Estimated revenue impact
+$18,400
+
+Downstream services affected
+3
+
+Risk
+HIGH
+
+[Compare With Current State]
+
+Eventually this connects directly to the Operator's plan/risk workflow.
+
+34. /automation
+
+Show automations as human-readable workflows.
+
+AUTOMATION
+
+Every Monday at 09:00
+       ↓
+Run Website Monitor
+       ↓
+If issue found
+       ↓
+Create Investigation Task
+       ↓
+Cline investigates
+       ↓
+Verify
+       ↓
+Notify Slack
+
+Types:
+
+Schedule
+Webhook
+Event
+Condition
+Manual
+35. /capabilities
+
+Dynamic capability registry.
+
+CAPABILITIES
+
+GitHub
+● Connected
+
+PostgreSQL
+● Connected
+
+AWS
+● Connected
+
+Slack
+● Connected
+
+Browser
+● Connected
+
+Each capability:
+
+Tools
+Credentials
+Permissions
+Risk
+Availability
+Configuration
+36. /workspaces
+WORKSPACES
+
+My Application
+Production
+Development
+Research
+
+Workspace detail:
+
+Repositories
+Environment
+Agents
+Tasks
+Capabilities
+Credentials
+Policies
+Runs
+Worlds
+37. System screens
+
+Keep these simple.
+
+/models
+/providers
+/settings
+
+Models:
+
+Provider
+Model
+Availability
+Cost
+Limits
+
+Providers:
+
+Anthropic
+OpenAI
+...
+
+Settings:
+
+Organization
+Users
+Roles
+Security
+Notifications
+API
+Billing
+38. Mobile/responsive behavior
+
+Do not try to shrink the desktop Operator into a tiny three-column layout.
+
+On smaller screens:
+
+Conversation
+↓
+Current activity
+↓
+Workspace
+↓
+Plan
+↓
+Controls
+
+Bottom navigation:
+
+Operator | Tasks | Runs | Alerts | More
+39. Component architecture
+
+AGY must follow:
+
+frontend/
+│
+├── app/
+│
+├── routes/
+│
+├── layouts/
+│
+├── features/
+│   ├── command-center/
+│   ├── operator/
+│   ├── agents/
+│   ├── tasks/
+│   ├── teams/
+│   ├── runs/
+│   ├── verification/
+│   ├── governance/
+│   ├── automation/
+│   ├── world/
+│   ├── capabilities/
+│   └── workspaces/
+│
+├── components/
+│   ├── ui/
+│   ├── navigation/
+│   ├── forms/
+│   ├── dialogs/
+│   ├── activity/
+│   ├── execution/
+│   ├── visualization/
+│   └── data-display/
+│
+├── api/
+├── hooks/
+├── state/
+├── realtime/
+├── schemas/
+├── types/
+└── utils/
+40. Operator-specific component tree
+
+AGY should build the Operator approximately like:
+
+OperatorPage
+│
+├── OperatorHeader
+│   ├── RunStatus
+│   ├── EnvironmentBadge
+│   └── RunActions
+│
+├── OperatorMain
+│   │
+│   ├── ConversationPanel
+│   │   ├── MessageList
+│   │   ├── UserMessage
+│   │   ├── ClineMessage
+│   │   ├── ActivityCard
+│   │   ├── QuestionCard
+│   │   ├── PlanCard
+│   │   ├── ApprovalCard
+│   │   └── EvidenceCard
+│   │
+│   └── WorkspacePanel
+│       ├── WorkspaceTabs
+│       ├── WebPreview
+│       ├── FileTree
+│       ├── DiffViewer
+│       ├── TestResults
+│       ├── InfrastructureGraph
+│       ├── WorldGraph
+│       └── SimulationView
+│
+├── RunProgress
+│   ├── PlanSteps
+│   └── ProgressTimeline
+│
+├── ActivityTimeline
+│
+└── OperatorComposer
+    ├── MessageInput
+    ├── Attachments
+    ├── ContextSelector
+    └── ActionButtons
+41. Data rules for AGY
+
+This is extremely important.
+
+Components must NOT do:
+fetch("/api/runs")
+
+inside arbitrary components.
+
+Instead:
+
+API Client
+      ↓
+Query Hooks
+      ↓
+React Query
+      ↓
+Components
+
+Example:
+
+useRun(runId)
+useRunEvents(runId)
+useAgent(agentId)
+useTask(taskId)
+useVerification(runId)
+useApprovals()
+42. Realtime architecture
+
+Only one application-level WebSocket connection.
+
+Cline
+ ↓
+Synapse backend
+ ↓
+Event bus
+ ↓
+WebSocket gateway
+ ↓
+WSConnectionProvider
+ ↓
+React Query cache
+ ↓
+Components
+
+Never:
+
+ApprovalModal → WebSocket
+RunPage → WebSocket
+ActivityCard → WebSocket
+43. Normalized frontend events
+
+The frontend should consume Synapse events such as:
+
+run.created
+run.started
+run.paused
+run.resumed
+run.completed
+run.failed
+
+plan.created
+plan.updated
+
+activity.started
+activity.updated
+activity.completed
+activity.failed
+
+question.requested
+
+approval.requested
+approval.resolved
+
+constraint.added
+
+file.changed
+preview.ready
+
+test.started
+test.completed
+
+risk.assessed
+
+verification.started
+verification.completed
+
+The frontend should not depend directly on raw Cline event names.
+
+44. Design system
+
+AGY should create a reusable design system before implementing all screens.
+
+Required primitives:
+
+Button
+Input
+Textarea
+Select
+Combobox
+Tabs
+Dialog
+Drawer
+Popover
+Tooltip
+Dropdown
+Badge
+Avatar
+Card
+Table
+DataGrid
+Toast
+Alert
+Progress
+Skeleton
+EmptyState
+CommandPalette
+
+Product primitives:
+
+AgentCard
+TaskCard
+RunCard
+StatusIndicator
+RiskBadge
+EvidenceBlock
+ActivityItem
+ApprovalCard
+VerificationResult
+PlanStep
+TeamNode
+WorldNode
+ChangeSummary
+45. Important UX rule: progressive disclosure
+
+For a nontechnical user:
+
+Simple
+↓
+Explain
+↓
+Details
+↓
+Technical evidence
+
+Never start with:
+
+Cline session ID
+tool name
+JSON
+stack trace
+token count
+raw event
+
+Those should be available when needed.
+
+46. The ideal Operator interaction
+
+A nontechnical user should be able to do this:
+
+"The checkout isn't working. Find the problem and fix it."
+
+Synapse:
+
+UNDERSTANDING
+↓
+PLANNING
+↓
+POLICY CHECK
+↓
+RISK CHECK
+↓
+CLINE
+
+Cline:
+
+"I've found a timeout in the payment request."
+
+Then:
+
+LIVE
+
+✓ Found checkout
+✓ Found payment API
+✓ Identified timeout
+● Testing fix
+
+Then:
+
+CHANGE READY
+
+I changed the retry behavior.
+
+Tests: 12/12 ✓
+Risk: Low
+Environment: Development
+
+[View Result]
+[Ask Cline to Change Something]
+[Approve]
+
+User:
+
+"Make the button say Pay Now instead."
+
+Cline continues the same run/context appropriately.
+
+Then:
+
+✓ Changes complete
+✓ Tests passed
+✓ Verification passed
+
+The user never needed to understand Cline's internal architecture.
+
+47. What AGY must NOT do
+
+Put this explicitly in the implementation prompt.
+
+DO NOT:
+
+create fake/mock Cline execution
+hard-code agent types
+hard-code team roles
+invent tool types
+put Cline API calls in React components
+create separate WebSockets per component
+create frontend-only execution state
+expose hidden chain-of-thought
+make chat bypass policies
+allow frontend authorization decisions
+assume every action is reversible
+create fake simulation results
+create fake "AI activity" animations
+poll every component independently
+duplicate backend database state
+make the UI dependent on raw Cline event structures
+invent APIs that don't exist in the backend
+make the UI look complete by using static demo data
+48. Most important implementation sequence
+
+Tell AGY to build in this order:
+
+PHASE 1
+Design system
+        ↓
+Application shell
+        ↓
+Routing
+        ↓
+API client
+        ↓
+Authentication
+        ↓
+Realtime provider
+
+PHASE 2
+Run state model
+        ↓
+Operator
+        ↓
+Conversation
+        ↓
+Activity timeline
+        ↓
+Plan
+        ↓
+Controls
+
+PHASE 3
+Workspace renderers
+        ↓
+Files
+        ↓
+Diff
+        ↓
+Tests
+        ↓
+Web preview
+
+PHASE 4
+Agents
+        ↓
+Tasks
+        ↓
+Teams
+        ↓
+Runs
+
+PHASE 5
+Verification
+        ↓
+Governance
+        ↓
+Approvals
+        ↓
+Audit
+        ↓
+Risk
+
+PHASE 6
+Automation
+        ↓
+Capabilities
+        ↓
+Workspaces
+
+PHASE 7
+World Studio
+        ↓
+Digital Twin
+        ↓
+Simulation
+
+Do not build 30 pages with fake data first.
+
+Build the Operator end-to-end against the real backend, because that proves the most important Synapse loop:
+
+USER
+ ↓
+INTENT
+ ↓
+PLAN
+ ↓
+POLICY
+ ↓
+CLINE
+ ↓
+LIVE EVENTS
+ ↓
+INTERVENTION
+ ↓
+CHANGES
+ ↓
+VERIFICATION
+ ↓
+RESULT
+
+Once that works, the other screens become views over the same underlying data instead of separate frontend applications.

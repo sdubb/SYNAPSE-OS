@@ -1,0 +1,21 @@
+{
+  "name": "@synapse/twin-engine",
+  "version": "1.0.0",
+  "description": "Digital Twin runtime, state synchronization, drift detection, historical replay time machine, diffing, and confidence scoring for Synapse OS",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@synapse/world-engine": "*"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  }
+}

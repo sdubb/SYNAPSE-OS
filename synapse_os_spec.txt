@@ -1,0 +1,2745 @@
+=== SYNAPSE OS.docx ===
+SYNAPSE OS — FINAL BACKEND ARCHITECTURE
+0. The fundamental decision
+We are building:
+Synapse OS = a governed agent operating system built by forking Cline and embedding Cline's runtime as its native execution engine.
+Not:
+Synapse
+   ↓
+external Cline CLI
+Not:
+Synapse
+   ↓
+Cline npm package
+And definitely not:
+Synapse
+ ├── Cline
+ ├── Codex
+ ├── Claude Code
+ ├── Aider
+ └── other engines
+Instead:
+                         SYNAPSE OS
+                             │
+              ┌──────────────┴──────────────┐
+              │                             │
+       SYNAPSE CONTROL PLANE          SYNAPSE WORLD
+              │                         ENGINE
+              │                             │
+              ▼                             │
+        FORKED CLINE ENGINE ◄───────────────┘
+              │
+     ┌────────┼───────────────┐
+     │        │               │
+   Agent    Teams           Tools
+     │        │               │
+     └────────┼───────────────┘
+              │
+        Runtime / Workspace
+              │
+              ▼
+          Real World
+Cline is the execution substrate.
+Synapse becomes the:
+control plane 
+governance layer 
+safety layer 
+verification layer 
+observability layer 
+multi-tenant layer 
+agent management layer 
+simulation/digital-twin layer 
+external-agent supervision layer 
+orchestration layer. 
+1. What we are actually forking
+The current Cline repository is already a monorepo.
+Its root workspace includes:
+sdk/packages/*
+apps/*
+apps/vscode/webview-ui
+apps/vscode/testing-platform
+apps/cline-hub/src/webview
+apps/examples/*
+sdk/examples
+sdk/examples/plugins/*
+and uses Bun 1.3.13 with Node >=22.
+The core SDK is currently:
+sdk/packages/core
+sdk/packages/agents
+sdk/packages/llms
+sdk/packages/shared
+The current @cline/core package explicitly depends on:
+@cline/agents
+@cline/shared
+@cline/llms
+MCP SDK
+OpenTelemetry
+simple-git
+ws
+yaml
+zod
+and exposes a Node runtime.
+So our starting point should be:
+synapse/
+│
+├── cline/                 ← forked Cline source
+│
+└── synapse/               ← Synapse-specific source
+But I recommend one monorepo, not two unrelated repos.
+2. Final repository structure
+This is the structure I would give to Antigravity/Agy.
+synapse/
+│
+├── apps/
+│   │
+│   ├── api/
+│   │   └── src/
+│   │
+│   ├── web/
+│   │
+│   ├── worker/
+│   │
+│   ├── realtime/
+│   │
+│   ├── verifier/
+│   │
+│   ├── simulator/
+│   │
+│   └── cli/
+│
+├── packages/
+│   │
+│   ├── database/
+│   ├── auth/
+│   ├── contracts/
+│   ├── events/
+│   ├── policy/
+│   ├── security/
+│   ├── governance/
+│   ├── verification/
+│   ├── evidence/
+│   ├── audit/
+│   ├── workspaces/
+│   ├── agents/
+│   ├── runtimes/
+│   ├── external-agents/
+│   ├── connectors/
+│   ├── world-model/
+│   ├── simulation/
+│   ├── telemetry/
+│   ├── billing/
+│   └── observability/
+│
+├── cline/
+│   │
+│   ├── sdk/
+│   │   └── packages/
+│   │       ├── core/
+│   │       ├── agents/
+│   │       ├── llms/
+│   │       └── shared/
+│   │
+│   └── apps/
+│       ├── cli/
+│       └── cline-hub/
+│
+├── migrations/
+│
+├── infra/
+│
+├── scripts/
+│
+├── tests/
+│
+└── docs/
+But there is an important rule:
+Do not copy Cline files into Synapse packages unless there is a real reason.
+Keep Cline's internal architecture intact as much as possible.
+3. Cline becomes a first-class internal dependency
+The current Cline core itself has a very large internal surface.
+At its top level it currently contains areas including:
+account/
+auth/
+cline-core/
+cron/
+extensions/
+hooks/
+hub/
+logging/
+remote-config/
+runtime/
+services/
+session/
+settings/
+tasks/
+alongside ClineCore.ts, tests, and public exports.
+That tells us something important:
+Don't rebuild these.
+We inherit them.
+4. Cline layer
+Keep:
+cline/sdk/packages/agents
+cline/sdk/packages/llms
+cline/sdk/packages/shared
+cline/sdk/packages/core
+agents
+Responsible for the actual agent loop abstractions.
+llms
+Responsible for model/provider abstraction.
+shared
+Responsible for common contracts, types, schemas and helpers.
+core
+This becomes the heart of Synapse's agent execution.
+The current core already exports:
+ClineCore
+AgentConfig
+AgentEvent
+AgentHooks
+AgentResult
+AgentRunResult
+AgentTool
+ToolApprovalRequest
+ToolApprovalResult
+ToolPolicy
+WorkspaceInfo
+WorkspaceManifest
+and many additional runtime, team, MCP, automation, hook and plugin APIs.
+5. Synapse API
+Create:
+apps/api/
+└── src/
+    ├── main.ts
+    ├── app.ts
+    │
+    ├── middleware/
+    │   ├── auth.ts
+    │   ├── tenant.ts
+    │   ├── request-id.ts
+    │   ├── rate-limit.ts
+    │   ├── error-handler.ts
+    │   └── security.ts
+    │
+    ├── routes/
+    │   ├── auth.ts
+    │   ├── tenants.ts
+    │   ├── agents.ts
+    │   ├── sessions.ts
+    │   ├── tasks.ts
+    │   ├── teams.ts
+    │   ├── workspaces.ts
+    │   ├── approvals.ts
+    │   ├── policies.ts
+    │   ├── verification.ts
+    │   ├── evidence.ts
+    │   ├── audit.ts
+    │   ├── schedules.ts
+    │   ├── connectors.ts
+    │   ├── external-agents.ts
+    │   ├── world-models.ts
+    │   ├── simulations.ts
+    │   ├── telemetry.ts
+    │   └── health.ts
+    │
+    └── controllers/
+The API must remain thin.
+No business logic in routes.
+6. Application services
+Create:
+apps/api/src/services/
+with:
+agent-service.ts
+session-service.ts
+task-service.ts
+team-service.ts
+workspace-service.ts
+approval-service.ts
+policy-service.ts
+verification-service.ts
+evidence-service.ts
+schedule-service.ts
+connector-service.ts
+external-agent-service.ts
+world-model-service.ts
+simulation-service.ts
+audit-service.ts
+Each service coordinates packages.
+Example:
+POST /tasks/:id/start
+        │
+        ▼
+TaskService
+        │
+        ├── authorization
+        ├── policy
+        ├── workspace
+        ├── runtime
+        └── ClineCore
+7. Cline Runtime Adapter
+This is one of the most important files.
+packages/runtimes/
+├── cline-runtime.ts
+├── runtime-manager.ts
+├── runtime-registry.ts
+├── runtime-health.ts
+└── types.ts
+cline-runtime.ts is the only Synapse package allowed to know the low-level ClineCore API extensively.
+For example:
+class SynapseClineRuntime {
+    startSession(...)
+    sendMessage(...)
+    subscribe(...)
+    abort(...)
+    stop(...)
+    restore(...)
+    getSession(...)
+    getMessages(...)
+    getUsage(...)
+}
+Why?
+Because otherwise Cline implementation details leak everywhere.
+8. The Runtime Manager
+RuntimeManager
+controls:
+tenant
+workspace
+agent
+session
+runtime
+process
+health
+lifecycle
+Example:
+Tenant
+  │
+  └── Agent
+        │
+        └── Workspace
+              │
+              └── Cline Runtime
+                    │
+                    └── Session
+9. Session architecture
+Do not recreate Cline's complete message database.
+Cline already has session/history/runtime infrastructure.
+Synapse stores:
+synapse session ID
+cline session ID
+tenant ID
+agent ID
+task ID
+workspace ID
+runtime ID
+Example:
+agent_sessions
+-----------------------
+id
+tenant_id
+agent_id
+task_id
+cline_session_id
+workspace_id
+runtime_id
+status
+started_at
+ended_at
+Cline remains authoritative for its session content.
+Synapse becomes authoritative for:
+who owns the session and why it exists.
+10. Tasks
+packages/agents/
+├── task-manager.ts
+├── task-lifecycle.ts
+├── task-dependencies.ts
+├── task-dispatcher.ts
+└── task-types.ts
+Task lifecycle:
+BACKLOG
+   ↓
+PLANNED
+   ↓
+AUTHORIZED
+   ↓
+QUEUED
+   ↓
+RUNNING
+   ↓
+VERIFYING
+   ↓
+REVIEW
+   ↓
+COMPLETED
+Failure:
+RUNNING
+   ↓
+FAILED
+   ↓
+RECOVERY
+   ↓
+RETRY
+Never let the frontend directly change execution state.
+11. Kanban
+Cline already has Kanban functionality; the repository contains a CLI Kanban command and dedicated Kanban documentation.
+We should use its underlying task/team/worktree mechanisms.
+But Synapse adds:
+Kanban
+   ↓
+Policy
+   ↓
+Authorization
+   ↓
+Cline
+   ↓
+Verification
+A card should contain:
+task
+agent
+workspace
+cline session
+dependencies
+policy
+verification plan
+evidence
+status
+12. Teams
+Cline's current core explicitly exposes team-related runtime functionality such as:
+AgentTask
+AgentTeam
+AgentTeamsRuntime
+bootstrapAgentTeams
+createAgentTeamsTools
+createDelegatedAgent
+createSpawnAgentTool
+TeamEvent
+TeamMemberConfig
+TaskResult
+from the public core surface.
+Therefore:
+Synapse Team
+      │
+      ▼
+Cline Agent Team
+      │
+ ┌────┼────┐
+ ▼    ▼    ▼
+A     B    C
+Synapse controls:
+roles 
+permissions 
+budget 
+policies 
+task assignment 
+verification 
+termination 
+evidence. 
+Cline controls:
+agent execution 
+delegation 
+team runtime. 
+13. MCP
+Do not build a second MCP engine.
+Cline core already exposes extensive MCP functionality including:
+createMcpTools
+InMemoryMcpManager
+McpManager
+McpServerClient
+McpServerRegistration
+McpToolCallRequest
+McpToolCallResult
+McpToolDescriptor
+McpServerOAuthState
+and MCP transport/configuration handling.
+Synapse adds:
+MCP Registry
+MCP Permissions
+MCP Risk Classification
+MCP Tenant Isolation
+MCP Audit
+MCP Health
+Architecture:
+MCP Server
+    ↓
+Cline MCP Manager
+    ↓
+Synapse Policy Gate
+    ↓
+Tool
+14. Tool governance
+This is one of Synapse's most important additions.
+packages/policy/
+├── policy-engine.ts
+├── policy-evaluator.ts
+├── policy-context.ts
+├── policy-rules.ts
+├── tool-policy.ts
+├── network-policy.ts
+├── filesystem-policy.ts
+├── command-policy.ts
+└── policy-result.ts
+Every dangerous action passes through:
+Agent
+ ↓
+Tool request
+ ↓
+Policy Engine
+ ↓
+Risk Engine
+ ↓
+Simulation?
+ ↓
+Approval?
+ ↓
+Execute
+15. Risk engine
+Create:
+packages/security/risk/
+├── risk-engine.ts
+├── risk-classifier.ts
+├── risk-factors.ts
+├── command-risk.ts
+├── filesystem-risk.ts
+├── network-risk.ts
+├── credential-risk.ts
+└── risk-types.ts
+Example:
+rm -rf
+   ↓
+filesystem destructive
+   ↓
+HIGH
+   ↓
+approval required
+Whereas:
+cat package.json
+could be:
+READ_ONLY
+LOW
+AUTO
+16. Approval system
+packages/governance/approvals/
+├── approval-manager.ts
+├── approval-request.ts
+├── approval-resolution.ts
+├── approval-timeout.ts
+├── approval-policy.ts
+└── approval-store.ts
+Flow:
+Cline tool request
+       ↓
+Synapse approval hook
+       ↓
+Create approval
+       ↓
+DB
+       ↓
+WebSocket
+       ↓
+Human
+       ↓
+Approve / Reject
+       ↓
+Cline continues
+Cline's current core exports ToolApprovalRequest, ToolApprovalResult and ToolPolicy, so Synapse should integrate with those rather than inventing an unrelated approval protocol.
+17. Kill switch
+This must be a first-class subsystem.
+packages/governance/control/
+├── abort.ts
+├── stop.ts
+├── kill.ts
+├── pause.ts
+├── emergency-stop.ts
+└── runtime-control.ts
+Levels:
+MESSAGE STOP
+     ↓
+SESSION ABORT
+     ↓
+SESSION STOP
+     ↓
+AGENT STOP
+     ↓
+TEAM STOP
+     ↓
+RUNTIME STOP
+     ↓
+WORKSPACE LOCK
+The emergency mechanism should not depend on the frontend.
+18. Verification
+This is where Synapse becomes substantially different from Cline.
+packages/verification/
+├── verifier.ts
+├── verification-plan.ts
+├── verification-runner.ts
+├── assertions/
+│   ├── files.ts
+│   ├── git.ts
+│   ├── tests.ts
+│   ├── http.ts
+│   ├── database.ts
+│   ├── commands.ts
+│   └── behavior.ts
+├── diff-verifier.ts
+├── regression-verifier.ts
+└── verification-result.ts
+Agent says:
+Done.
+Synapse does not trust that.
+Instead:
+Agent claims completion
+        ↓
+Verification plan
+        ↓
+Tests
+        ↓
+Diff
+        ↓
+Expected state
+        ↓
+Runtime checks
+        ↓
+Security checks
+        ↓
+Evidence
+        ↓
+PASS / FAIL
+19. Verification agents
+Use Cline itself.
+This is important.
+We don't add Codex/Claude/Aider as verification engines.
+Instead:
+Worker Cline
+     ↓
+produces change
+     ↓
+Verifier Cline
+     ↓
+reviews worker
+     ↓
+Verification engine
+     ↓
+decision
+The verifier gets a constrained mission.
+For example:
+"You are a verification agent.
+Do not modify production files.
+Inspect the worker's changes.
+Run the specified tests.
+Report evidence."
+So even verification is powered by our fork of Cline.
+20. Evidence
+Never store only:
+verified = true
+Store:
+verification_run
+    │
+    ├── assertion
+    ├── command
+    ├── output
+    ├── exit code
+    ├── timestamp
+    ├── workspace
+    ├── git SHA
+    ├── artifact
+    └── verifier session
+Files:
+packages/evidence/
+├── evidence-store.ts
+├── evidence-model.ts
+├── evidence-hasher.ts
+├── artifact-store.ts
+├── evidence-chain.ts
+└── evidence-verifier.ts
+This gives Synapse proof, not just status.
+21. Audit
+packages/audit/
+├── audit-service.ts
+├── audit-event.ts
+├── audit-writer.ts
+├── audit-query.ts
+├── audit-redaction.ts
+└── audit-integrity.ts
+Everything important generates an immutable audit event:
+agent.created
+session.started
+tool.requested
+tool.approved
+tool.rejected
+tool.executed
+policy.blocked
+agent.aborted
+agent.stopped
+verification.started
+verification.failed
+verification.passed
+workspace.modified
+credential.used
+connector.called
+simulation.executed
+22. Event architecture
+Cline already has a rich event system and the current core exports agent/event/team/automation types.
+We create a Synapse event bus around it.
+Cline Event
+      ↓
+Cline Adapter
+      ↓
+Synapse Event Envelope
+      ↓
+Event Bus
+      ├── Audit
+      ├── Telemetry
+      ├── Verification
+      ├── Policy
+      ├── WebSocket
+      └── World Engine
+23. Event envelope
+Every event should look conceptually like:
+{
+  eventId,
+  eventType,
+  tenantId,
+  agentId,
+  sessionId,
+  taskId,
+  workspaceId,
+  runtimeId,
+  timestamp,
+  sequence,
+  source,
+  payload,
+  traceId
+}
+This is critical for reliable event ordering.
+24. Realtime
+Create:
+apps/realtime/
+├── websocket-server.ts
+├── connection-manager.ts
+├── subscription-manager.ts
+├── authorization.ts
+├── event-router.ts
+└── heartbeat.ts
+Only one frontend connection per application session, not one WebSocket per component.
+Cline
+ ↓
+Synapse Event Bus
+ ↓
+Realtime Server
+ ↓
+Browser
+25. Workspace manager
+Cline already has workspace concepts and workspace contracts.
+Synapse adds isolation:
+packages/workspaces/
+├── workspace-manager.ts
+├── workspace-provisioner.ts
+├── workspace-lock.ts
+├── workspace-cleanup.ts
+├── workspace-snapshot.ts
+├── workspace-permissions.ts
+└── git/
+    ├── repository.ts
+    ├── branch.ts
+    ├── worktree.ts
+    ├── diff.ts
+    └── checkpoint.ts
+Every agent gets:
+tenant
+ ↓
+workspace
+ ↓
+isolated execution
+26. Checkpoints
+Cline's current core exposes checkpoint types and checkpoint hooks.
+Use them.
+But Synapse adds:
+checkpoint
+ ↓
+policy state
+ ↓
+verification state
+ ↓
+evidence state
+This gives:
+"Return this agent to the last verified safe state."
+rather than simply:
+"Undo the last thing."
+27. Scheduling
+The current Cline repository has a cron subsystem and schedule service tests, and the CLI exposes scheduling functionality.
+We should not spawn the external CLI.
+Instead:
+Synapse Scheduler
+      ↓
+Cline automation
+      ↓
+Cline session
+Synapse adds:
+schedule
+ ↓
+authorization
+ ↓
+policy
+ ↓
+budget
+ ↓
+workspace
+ ↓
+Cline
+ ↓
+verification
+28. Automation
+This is one of the things I previously understated.
+The current Cline core explicitly exports:
+ClineAutomationEventIngressResult
+ClineAutomationEventLog
+ClineAutomationListEventsOptions
+ClineAutomationListRunsOptions
+ClineAutomationListSpecsOptions
+ClineAutomationRun
+ClineAutomationRunStatus
+ClineAutomationSpec
+ClineCoreAutomationApi
+ClineCoreAutomationOptions
+So automation is actually part of the current ClineCore surface.
+Therefore Synapse should wrap it, not recreate it.
+29. Hub / remote runtimes
+Another correction from our earlier design.
+Cline Core currently exposes:
+HubOptions
+RemoteOptions
+HubRuntimeHost
+RemoteRuntimeHost
+LocalRuntimeHost
+createRuntimeHost
+resolveSessionBackend
+This means Synapse can eventually have:
+Synapse Control Plane
+        │
+        ▼
+Runtime Scheduler
+        │
+ ┌──────┼─────────┐
+ ▼      ▼         ▼
+Local  Remote    Hub
+Cline  Cline     Cline
+This is exactly what we need for serious production deployment.
+30. External agents
+Here is how we reconcile your "only Cline engine" requirement with your earlier goal of controlling agents from other companies.
+We do not add Codex/Claude/Aider as Synapse engines.
+Instead:
+                 SYNAPSE
+                    │
+             CLINE SUPERVISOR
+                    │
+       ┌────────────┼────────────┐
+       ▼            ▼            ▼
+   Cline Agent   External      External
+                 Agent A       Agent B
+The external agent is a controlled external system, not a Synapse engine.
+For example:
+External Agent Adapter
+can expose:
+connect
+observe
+pause
+resume
+stop
+collect logs
+collect artifacts
+request status
+verify output
+But Cline remains Synapse's intelligence/verification engine.
+This distinction is extremely important.
+31. External-agent package
+packages/external-agents/
+├── agent-adapter.ts
+├── agent-registry.ts
+├── agent-discovery.ts
+├── agent-observer.ts
+├── agent-controller.ts
+├── agent-health.ts
+├── agent-capabilities.ts
+├── agent-session.ts
+├── protocols/
+│   ├── generic.ts
+│   ├── http.ts
+│   ├── websocket.ts
+│   ├── cli.ts
+│   └── api.ts
+└── adapters/
+    └── ...
+The important design rule:
+No adapter gets to bypass Synapse policy.
+32. World Engine
+This is your major differentiation.
+packages/world-model/
+├── entity.ts
+├── relationship.ts
+├── state.ts
+├── event.ts
+├── constraint.ts
+├── behavior.ts
+├── world-model.ts
+├── world-builder.ts
+├── ingestion/
+│   ├── csv.ts
+│   ├── json.ts
+│   ├── database.ts
+│   ├── api.ts
+│   ├── logs.ts
+│   └── telemetry.ts
+└── graph/
+    ├── graph-builder.ts
+    ├── graph-query.ts
+    └── graph-projection.ts
+33. Digital Twin
+packages/simulation/
+├── twin/
+│   ├── twin-engine.ts
+│   ├── twin-state.ts
+│   ├── twin-sync.ts
+│   ├── twin-projection.ts
+│   └── twin-validation.ts
+│
+├── scenarios/
+│   ├── scenario-manager.ts
+│   ├── scenario-definition.ts
+│   └── scenario-comparison.ts
+│
+├── simulation/
+│   ├── simulation-engine.ts
+│   ├── event-simulator.ts
+│   ├── rule-engine.ts
+│   ├── state-transition.ts
+│   └── simulation-run.ts
+│
+└── forecasting/
+    ├── forecast-engine.ts
+    └── uncertainty.ts
+34. Agent + simulation integration
+This is the really powerful part.
+Before an agent executes:
+Agent wants:
+"Delete these resources"
+Synapse can optionally:
+Agent action
+    ↓
+World Model
+    ↓
+Simulate
+    ↓
+Expected consequences
+    ↓
+Risk
+    ↓
+Policy
+    ↓
+Approval
+    ↓
+Execute
+So:
+The digital twin becomes part of the control plane.
+Not merely a pretty visualization.
+35. Database
+I would use PostgreSQL for Synapse-owned state.
+But do not mirror everything Cline already owns.
+Core tables
+tenants
+users
+memberships
+roles
+permissions
+agents
+agent_capabilities
+agent_credentials
+workspaces
+workspace_members
+workspace_snapshots
+tasks
+task_dependencies
+task_runs
+sessions
+session_mappings
+teams
+team_members
+approvals
+approval_decisions
+policies
+policy_rules
+verification_plans
+verification_runs
+verification_assertions
+evidence
+artifacts
+audit_logs
+schedules
+schedule_runs
+connectors
+connector_credentials
+connector_runs
+external_agents
+external_agent_sessions
+world_models
+world_entities
+world_relationships
+world_events
+simulations
+simulation_scenarios
+simulation_runs
+simulation_events
+telemetry
+usage_records
+cost_records
+36. What NOT to put in PostgreSQL
+Do not create:
+native_sessions
+native_messages
+native_agent_memory
+native_tool_history
+just because we can.
+If Cline already owns something, Synapse should reference it.
+For example:
+Synapse session
+       │
+       └── cline_session_id
+not:
+Synapse session
+       │
+       ├── duplicate messages
+       ├── duplicate tokens
+       └── duplicate history
+37. Credentials
+Never store:
+api_key
+plain.
+Use:
+credentials
+ ↓
+encryption
+ ↓
+secret store
+Database stores:
+credential_id
+tenant_id
+provider
+encrypted_secret
+metadata
+Runtime receives the decrypted secret only when required.
+38. Authentication
+packages/auth/
+├── authentication.ts
+├── authorization.ts
+├── sessions.ts
+├── tokens.ts
+├── roles.ts
+├── permissions.ts
+└── tenant-context.ts
+Every request resolves:
+user
+ ↓
+tenant
+ ↓
+role
+ ↓
+permissions
+ ↓
+resource
+Never rely on frontend permissions.
+39. Multi-tenancy
+Every tenant-owned table needs:
+tenant_id
+And every service must enforce:
+authenticated tenant
+       ≠
+requested tenant
+unless explicit platform-level permission exists.
+Database-level row-level security can eventually reinforce this.
+40. Observability
+Cline already integrates OpenTelemetry dependencies in core.
+Synapse should standardize:
+trace_id
+span_id
+tenant_id
+agent_id
+session_id
+task_id
+runtime_id
+around every operation.
+Example:
+task.start
+   │
+   ├── policy.evaluate
+   ├── workspace.create
+   ├── cline.session.start
+   ├── tool.execute
+   ├── verification.run
+   └── task.complete
+All under one trace.
+41. Telemetry
+packages/telemetry/
+├── telemetry.ts
+├── metrics.ts
+├── traces.ts
+├── logs.ts
+├── cost.ts
+├── token-usage.ts
+└── agent-health.ts
+Metrics:
+tokens
+cost
+latency
+tool calls
+tool failures
+verification rate
+retries
+approval latency
+task completion
+agent uptime
+runtime uptime
+42. Cost governance
+A major missing piece in ordinary agent platforms.
+Agent
+ ↓
+estimated cost
+ ↓
+policy
+ ↓
+budget
+ ↓
+allow / block
+Budget hierarchy:
+Tenant
+  ↓
+Project
+  ↓
+Agent
+  ↓
+Task
+  ↓
+Session
+43. Recovery
+packages/governance/recovery/
+├── retry-manager.ts
+├── failure-classifier.ts
+├── checkpoint-recovery.ts
+├── session-recovery.ts
+├── workspace-recovery.ts
+└── escalation.ts
+Don't blindly retry everything.
+Example:
+network timeout
+→ retry
+rate limit
+→ backoff
+permission denied
+→ don't retry
+destructive policy block
+→ don't retry
+test failure
+→ verification loop
+44. Security boundary
+The execution path should be:
+                 USER
+                   │
+                   ▼
+              SYNAPSE API
+                   │
+                   ▼
+            AUTHORIZATION
+                   │
+                   ▼
+             POLICY ENGINE
+                   │
+                   ▼
+               RISK ENGINE
+                   │
+             ┌─────┴─────┐
+             │           │
+          ALLOW       APPROVAL
+             │           │
+             └─────┬─────┘
+                   ▼
+              CLINE CORE
+                   │
+                   ▼
+                 TOOL
+                   │
+                   ▼
+               SANDBOX
+                   │
+                   ▼
+             REAL SYSTEM
+And afterwards:
+REAL SYSTEM
+     ↓
+Evidence
+     ↓
+Verification
+     ↓
+Audit
+     ↓
+World Model
+45. The most important architectural rule
+Cline should not know about Synapse's business domain.
+Bad:
+Cline
+ ↓
+SynapseTenantService
+ ↓
+Postgres
+Good:
+Synapse
+ ↓
+Cline adapter
+ ↓
+Cline
+Cline remains reusable.
+Synapse owns the orchestration around it.
+46. Where we modify Cline
+There will be places where we need to modify the fork.
+I would isolate them under:
+cline/synapse/
+or, preferably, narrowly placed integration points inside existing Cline modules.
+Examples:
+cline/sdk/packages/core/src/synapse/
+    policy-hooks.ts
+    governance-hooks.ts
+    evidence-hooks.ts
+    runtime-metadata.ts
+But don't turn core into a giant Synapse-specific mess.
+47. Preferred Cline integration
+ClineCore
+   │
+   ├── Agent Hooks
+   │
+   ├── Tool Hooks
+   │
+   ├── Session Events
+   │
+   ├── Team Events
+   │
+   ├── Automation Events
+   │
+   └── Runtime Hooks
+             │
+             ▼
+       Synapse Adapter
+The current core already has hooks, extensions, automation, team runtime, runtime hosts and MCP functionality, so those are the natural integration surfaces.
+48. CLI
+We fork the CLI, but Synapse itself does not require users to install it.
+Cline's CLI source is under:
+apps/cli/
+and includes commands such as Kanban and program execution.
+For Synapse:
+Cline CLI
+      │
+      └── internal/reference/optional developer interface
+Synapse:
+Synapse API
+      ↓
+ClineCore
+The Synapse user never needs:
+npm install cline
+or:
+cline ...
+49. Why keep Cline CLI source?
+Because it contains useful implementations and operational knowledge for:
+scheduling 
+Kanban 
+program execution 
+authentication 
+configuration 
+diagnostics 
+team operations 
+hub interaction. 
+We can port the relevant behavior into Synapse services rather than shelling out.
+50. Cline Hub
+The current repo also contains:
+apps/cline-hub
+with server code, and the SDK exports hub runtime components.
+For Synapse production:
+Synapse Control Plane
+        │
+        ▼
+Synapse Runtime Scheduler
+        │
+        ▼
+Cline Runtime Host
+We can reuse Cline's hub/runtime architecture where appropriate rather than inventing another remote-agent transport.
+51. Final backend layers
+The complete architecture is therefore:
+┌─────────────────────────────────────────────┐
+│                SYNAPSE API                  │
+├─────────────────────────────────────────────┤
+│ Auth │ RBAC │ Tenant │ Rate Limit │ API     │
+├─────────────────────────────────────────────┤
+│           CONTROL PLANE                     │
+│ Tasks │ Agents │ Teams │ Sessions │ Schedules│
+├─────────────────────────────────────────────┤
+│           GOVERNANCE                        │
+│ Policy │ Risk │ Approval │ Budget │ Kill     │
+├─────────────────────────────────────────────┤
+│           CLINE INTEGRATION                 │
+│ Runtime │ Sessions │ Teams │ MCP │ Hooks    │
+├─────────────────────────────────────────────┤
+│              FORKED CLINE                  │
+│ Core │ Agents │ LLMS │ Shared │ Hub         │
+├─────────────────────────────────────────────┤
+│           EXECUTION                         │
+│ Workspace │ Sandbox │ Tools │ Git │ Network │
+├─────────────────────────────────────────────┤
+│           VERIFICATION                      │
+│ Tests │ Assertions │ Verifier │ Evidence    │
+├─────────────────────────────────────────────┤
+│           OBSERVABILITY                     │
+│ Events │ Audit │ Logs │ Metrics │ Traces     │
+├─────────────────────────────────────────────┤
+│           WORLD ENGINE                      │
+│ World Model │ Digital Twin │ Simulation      │
+├─────────────────────────────────────────────┤
+│           EXTERNAL SYSTEMS                  │
+│ GitHub │ APIs │ MCP │ Cloud │ External Agents│
+└─────────────────────────────────────────────┘
+52. End-to-end execution
+Suppose the user says:
+"Build a payment service and deploy it."
+Synapse does:
+1. User request
+       ↓
+2. Authentication
+       ↓
+3. Tenant authorization
+       ↓
+4. Task creation
+       ↓
+5. Risk analysis
+       ↓
+6. Policy evaluation
+       ↓
+7. Workspace provisioning
+       ↓
+8. Cline session creation
+       ↓
+9. Cline agent works
+       ↓
+10. Cline events
+       ↓
+11. Synapse monitoring
+       ↓
+12. Agent requests dangerous tool
+       ↓
+13. Policy engine
+       ↓
+14. Approval
+       ↓
+15. Cline continues
+       ↓
+16. Agent claims completion
+       ↓
+17. Verification Cline
+       ↓
+18. Automated assertions
+       ↓
+19. Evidence generated
+       ↓
+20. Security verification
+       ↓
+21. Digital Twin updated
+       ↓
+22. Deployment policy
+       ↓
+23. Simulation / blast-radius check
+       ↓
+24. Approval if required
+       ↓
+25. Deployment
+       ↓
+26. Post-deployment verification
+       ↓
+27. Audit
+       ↓
+28. COMPLETED
+That is the actual Synapse OS.
+53. What we should NOT build
+This is just as important for Agy.
+Do not build:
+❌ Another agent loop
+❌ Another LLM abstraction
+❌ Another MCP implementation
+❌ Another session engine
+❌ Another team engine
+❌ Another cron engine
+❌ Another tool framework
+❌ Another agent memory system
+❌ Another Cline CLI wrapper
+❌ Duplicate Cline messages
+❌ Fake agent states
+❌ Fake tool events
+❌ Frontend-controlled execution
+Because Cline already provides much of this.
+54. What we DO build
+✅ Control plane
+✅ Tenant isolation
+✅ RBAC
+✅ Policy engine
+✅ Risk engine
+✅ Approval system
+✅ Kill switch
+✅ Verification
+✅ Evidence
+✅ Audit
+✅ Cost governance
+✅ Runtime management
+✅ External-agent supervision
+✅ Digital twins
+✅ Simulation
+✅ World models
+✅ Cross-system observability
+✅ Enterprise governance
+55. The final relationship
+This is the simplest way to explain the entire project to an engineer:
+                 CLINE
+        = execution engine
+                 │
+                 ▼
+              SYNAPSE
+        = operating system
+                 │
+       ┌─────────┼─────────┐
+       ▼         ▼         ▼
+    Govern     Verify    Observe
+       │         │         │
+       └─────────┼─────────┘
+                 ▼
+              Control
+                 │
+                 ▼
+               World
+And the key strategic difference is:
+Cline makes the agent capable. Synapse makes the agent governable.
+Then the World Engine makes it possible to understand and simulate the environment in which that agent operates.
+
+=== Synapse O1.docx ===
+Synapse OS — Backend Implementation-Level File Manifest
+0. The fundamental architecture
+                         SYNAPSE OS
+                              │
+              ┌───────────────┴────────────────┐
+              │                                │
+       SYNAPSE CONTROL PLANE             CLINE ENGINE
+              │                                │
+              │                         forked upstream Cline
+              │                                │
+              │              ┌─────────────────┼─────────────────┐
+              │              │                 │                 │
+              │           Agents             Core              LLMs
+              │              │                 │                 │
+              │           Tools             Sessions          Providers
+              │           Hooks              Teams            Models
+              │            MCP              Storage            ...
+              │           Skills            Hub
+              │              │
+              └──────────────┤
+                             │
+                  CONTROL / OBSERVE / VERIFY
+                             │
+          ┌──────────────────┼───────────────────┐
+          │                  │                   │
+       Policy             Safety              Audit
+       Approval           Verification        Events
+       Identity           Kill switch         Security
+       Scheduler          Sandboxing           Governance
+          │                  │                   │
+          └──────────────────┼───────────────────┘
+                             │
+                       WORLD ENGINE
+                             │
+                Digital Twin / Simulation
+Important: Synapse should not fork Cline and then rewrite Cline's internals unnecessarily.
+Instead:
+upstream Cline
+     ↓
+minimal Synapse patches
+     ↓
+Cline Engine
+     ↓
+Synapse Adapter
+     ↓
+Synapse Control Plane
+This makes upstream rebasing possible.
+Cline's own architecture already puts stateful orchestration in @cline/core, the agent loop in @cline/agents, provider handling in @cline/llms, and shared contracts in @cline/shared. 
+1. Repository root
+I would structure the fork like this:
+synapse/
+│
+├── apps/
+│   ├── backend/
+│   ├── frontend/
+│   └── worker/
+│
+├── packages/
+│   ├── control-plane/
+│   ├── engine-adapter/
+│   ├── policy-engine/
+│   ├── approval-engine/
+│   ├── verification-engine/
+│   ├── safety-engine/
+│   ├── audit-engine/
+│   ├── event-bus/
+│   ├── agent-registry/
+│   ├── runtime-manager/
+│   ├── scheduler/
+│   ├── connector-manager/
+│   ├── world-engine/
+│   ├── simulation-engine/
+│   ├── twin-engine/
+│   ├── security/
+│   ├── secrets/
+│   ├── tenancy/
+│   ├── observability/
+│   ├── contracts/
+│   └── database/
+│
+├── engine/
+│   └── cline/
+│
+├── migrations/
+├── scripts/
+├── tests/
+├── docker/
+├── docs/
+│
+├── package.json
+├── bun.lock
+├── turbo.json
+├── docker-compose.yml
+└── README.md
+The important distinction:
+engine/cline/
+is the upstream Cline source.
+Everything under:
+packages/
+apps/
+is Synapse code.
+2. engine/cline/
+Do not flatten Cline into Synapse.
+Preserve its structure as much as possible.
+engine/cline/
+│
+├── sdk/
+│   ├── packages/
+│   │   ├── shared/
+│   │   ├── llms/
+│   │   ├── agents/
+│   │   ├── core/
+│   │   ├── sdk/
+│   │   └── ui/
+│   │
+│   └── examples/
+│
+├── apps/
+│   ├── cli/
+│   ├── cline-hub/
+│   ├── vscode/
+│   └── examples/
+│
+├── docs/
+├── scripts/
+├── package.json
+└── ...
+Cline's current monorepo actually uses these package boundaries and workspace structure. 
+Rule
+Do not put Synapse business logic into:
+engine/cline/sdk/packages/core/
+unless the functionality genuinely belongs to Cline itself.
+Instead:
+Cline → emits/returns capability
+Synapse → governs capability
+3. What Synapse owns vs Cline owns
+This boundary is critical.
+Capability
+Owner
+Agent reasoning loop
+Cline
+Tool execution
+Cline
+Filesystem tools
+Cline
+Bash
+Cline
+MCP
+Cline
+Browser/web tools
+Cline
+LLM providers
+Cline
+Sessions
+Cline
+Teams
+Cline
+Skills
+Cline
+Hooks
+Cline
+Checkpoints
+Cline
+Agent execution
+Cline
+Agent lifecycle control
+Synapse
+Authentication
+Synapse
+Tenants
+Synapse
+Policies
+Synapse
+Approvals
+Synapse
+Safety
+Synapse
+Verification
+Synapse
+Audit
+Synapse
+Cross-agent monitoring
+Synapse
+Security
+Synapse
+Kill switch
+Synapse
+Agent registry
+Synapse
+External-agent adapters
+Synapse
+World model
+Synapse
+Digital twins
+Synapse
+Simulation
+Synapse
+Governance
+Synapse
+4. apps/backend/
+This is the main Synapse API server.
+apps/backend/
+│
+├── src/
+│   │
+│   ├── main.ts
+│   ├── app.ts
+│   ├── config.ts
+│   │
+│   ├── server/
+│   │   ├── http.ts
+│   │   ├── websocket.ts
+│   │   ├── shutdown.ts
+│   │   └── health.ts
+│   │
+│   ├── routes/
+│   │   ├── auth.routes.ts
+│   │   ├── agents.routes.ts
+│   │   ├── sessions.routes.ts
+│   │   ├── tasks.routes.ts
+│   │   ├── teams.routes.ts
+│   │   ├── approvals.routes.ts
+│   │   ├── policies.routes.ts
+│   │   ├── verification.routes.ts
+│   │   ├── security.routes.ts
+│   │   ├── audit.routes.ts
+│   │   ├── schedules.routes.ts
+│   │   ├── connectors.routes.ts
+│   │   ├── runtimes.routes.ts
+│   │   ├── world.routes.ts
+│   │   ├── simulations.routes.ts
+│   │   └── health.routes.ts
+│   │
+│   ├── middleware/
+│   │   ├── auth.ts
+│   │   ├── tenant.ts
+│   │   ├── permissions.ts
+│   │   ├── rate-limit.ts
+│   │   ├── request-id.ts
+│   │   ├── validation.ts
+│   │   ├── error-handler.ts
+│   │   └── audit.ts
+│   │
+│   └── bootstrap/
+│       ├── database.ts
+│       ├── engine.ts
+│       ├── events.ts
+│       ├── policies.ts
+│       └── workers.ts
+│
+└── tests/
+5. main.ts
+Only process startup.
+main.ts
+  ↓
+loadConfig()
+  ↓
+connectDatabase()
+  ↓
+initializeSecurity()
+  ↓
+initializeClineEngine()
+  ↓
+initializeControlPlane()
+  ↓
+initializeEventBus()
+  ↓
+initializeWorkers()
+  ↓
+startHTTPServer()
+  ↓
+startWebSocketServer()
+It should not contain business logic.
+6. config.ts
+Central configuration.
+DATABASE_URL
+REDIS_URL
+JWT_SECRET
+ENCRYPTION_KEY
+SYNAPSE_ENV
+CLINE_DATA_DIR
+CLINE_WORKSPACE_ROOT
+MAX_CONCURRENT_AGENTS
+MAX_AGENT_RUNTIME
+APPROVAL_TIMEOUT
+VERIFICATION_TIMEOUT
+WORLD_ENGINE_ENABLED
+SIMULATION_ENGINE_ENABLED
+LOG_LEVEL
+No hardcoded secrets.
+7. packages/engine-adapter/
+This is one of the most important packages.
+packages/engine-adapter/
+│
+├── src/
+│   ├── index.ts
+│   │
+│   ├── ClineEngine.ts
+│   ├── ClineSession.ts
+│   ├── ClineTeam.ts
+│   ├── ClineWorkspace.ts
+│   │
+│   ├── lifecycle/
+│   │   ├── start.ts
+│   │   ├── pause.ts
+│   │   ├── resume.ts
+│   │   ├── abort.ts
+│   │   ├── stop.ts
+│   │   └── restart.ts
+│   │
+│   ├── events/
+│   │   ├── ClineEventAdapter.ts
+│   │   ├── event-normalizer.ts
+│   │   └── event-mapper.ts
+│   │
+│   ├── approvals/
+│   │   └── ClineApprovalBridge.ts
+│   │
+│   ├── teams/
+│   │   ├── TeamManager.ts
+│   │   └── TeamStateReader.ts
+│   │
+│   └── errors/
+│       └── ClineEngineError.ts
+│
+└── tests/
+ClineEngine.ts
+This becomes Synapse's only doorway into Cline.
+Conceptually:
+class ClineEngine {
+    createRuntime()
+    startAgent()
+    sendMessage()
+    subscribe()
+    getSession()
+    getMessages()
+    getUsage()
+    abort()
+    stop()
+    delete()
+    dispose()
+    startTeam()
+    getTeamState()
+}
+No route should directly call random Cline internals.
+Bad:
+route → ClineCore
+Good:
+route
+ ↓
+control service
+ ↓
+ClineEngine
+ ↓
+ClineCore
+This prevents the backend from becoming impossible to maintain.
+8. packages/control-plane/
+The central orchestrator.
+control-plane/
+│
+├── src/
+│   ├── ControlPlane.ts
+│   │
+│   ├── AgentController.ts
+│   ├── SessionController.ts
+│   ├── TaskController.ts
+│   ├── TeamController.ts
+│   ├── WorkspaceController.ts
+│   │
+│   ├── commands/
+│   │   ├── StartAgent.ts
+│   │   ├── StopAgent.ts
+│   │   ├── AbortAgent.ts
+│   │   ├── PauseAgent.ts
+│   │   ├── ResumeAgent.ts
+│   │   ├── RetryAgent.ts
+│   │   └── KillAgent.ts
+│   │
+│   ├── state/
+│   │   ├── AgentState.ts
+│   │   ├── SessionState.ts
+│   │   └── StateReducer.ts
+│   │
+│   └── errors/
+│       └── ControlPlaneError.ts
+The control plane answers:
+What is running?
+Who owns it?
+What is it allowed to do?
+Can it continue?
+Has it completed?
+Should it be stopped?
+9. packages/agent-registry/
+Synapse needs its own registry.
+agent-registry/
+│
+├── src/
+│   ├── AgentRegistry.ts
+│   ├── AgentRegistration.ts
+│   ├── AgentDiscovery.ts
+│   ├── AgentCapabilities.ts
+│   ├── AgentHealth.ts
+│   └── AgentOwnership.ts
+Database:
+agents
+agent_instances
+agent_capabilities
+agent_credentials
+agent_workspaces
+This is not replacing Cline sessions.
+It identifies:
+Synapse Agent
+       │
+       └── Cline Session
+10. Runtime manager
+runtime-manager/
+│
+├── src/
+│   ├── RuntimeManager.ts
+│   ├── RuntimeInstance.ts
+│   ├── RuntimeAllocator.ts
+│   ├── RuntimeHealthMonitor.ts
+│   ├── RuntimeRecovery.ts
+│   ├── WorkspaceIsolation.ts
+│   └── ResourceLimits.ts
+Responsibilities:
+agent
+ ↓
+workspace
+ ↓
+runtime
+ ↓
+Cline
+It handles:
+process lifecycle 
+resource limits 
+workspace isolation 
+crash detection 
+recovery 
+concurrency 
+11. Policy engine
+policy-engine/
+│
+├── src/
+│   ├── PolicyEngine.ts
+│   ├── PolicyEvaluator.ts
+│   ├── PolicyCompiler.ts
+│   ├── PolicyContext.ts
+│   ├── PolicyDecision.ts
+│   │
+│   ├── rules/
+│   │   ├── filesystem.ts
+│   │   ├── shell.ts
+│   │   ├── network.ts
+│   │   ├── git.ts
+│   │   ├── secrets.ts
+│   │   ├── production.ts
+│   │   └── destructive.ts
+│   │
+│   └── schemas/
+│       └── policy.schema.ts
+Flow:
+Cline wants tool
+       ↓
+Synapse policy engine
+       ↓
+ALLOW
+BLOCK
+APPROVAL
+This is a major differentiator.
+12. Approval engine
+approval-engine/
+│
+├── src/
+│   ├── ApprovalEngine.ts
+│   ├── ApprovalRequest.ts
+│   ├── ApprovalResolver.ts
+│   ├── ApprovalTimeout.ts
+│   ├── ApprovalPolicy.ts
+│   └── ApprovalAudit.ts
+Flow:
+tool request
+ ↓
+policy
+ ↓
+requires approval
+ ↓
+DB
+ ↓
+WebSocket
+ ↓
+human
+ ↓
+approve/reject
+ ↓
+Cline callback
+Never allow an approval request to remain indefinitely pending.
+13. Safety engine
+safety-engine/
+│
+├── src/
+│   ├── SafetyEngine.ts
+│   ├── RiskClassifier.ts
+│   ├── ActionRisk.ts
+│   ├── BlastRadius.ts
+│   ├── SecretDetector.ts
+│   ├── PromptInjectionDetector.ts
+│   ├── CommandRiskAnalyzer.ts
+│   ├── WorkspaceBoundary.ts
+│   ├── NetworkGuard.ts
+│   └── KillSwitch.ts
+Before consequential execution:
+ACTION
+ ↓
+risk analysis
+ ↓
+blast radius
+ ↓
+policy
+ ↓
+verification requirements
+ ↓
+allow / approval / block
+14. Verification engine
+This should be a first-class subsystem, not a few tests.
+verification-engine/
+│
+├── src/
+│   ├── VerificationEngine.ts
+│   ├── VerificationPlan.ts
+│   ├── VerificationRunner.ts
+│   ├── VerificationResult.ts
+│   │
+│   ├── verifiers/
+│   │   ├── FileVerifier.ts
+│   │   ├── GitVerifier.ts
+│   │   ├── TestVerifier.ts
+│   │   ├── BuildVerifier.ts
+│   │   ├── APIVerifier.ts
+│   │   ├── DatabaseVerifier.ts
+│   │   ├── SecurityVerifier.ts
+│   │   └── ContractVerifier.ts
+│   │
+│   ├── evidence/
+│   │   ├── EvidenceStore.ts
+│   │   ├── EvidenceHasher.ts
+│   │   └── EvidenceChain.ts
+│   │
+│   └── policies/
+│       └── verification-policy.ts
+The crucial architecture:
+Agent says:
+"I fixed it."
+          ↓
+Synapse does NOT trust this.
+          ↓
+Independent verification
+          ↓
+Evidence
+          ↓
+PASS / FAIL / INCONCLUSIVE
+15. Audit engine
+audit-engine/
+│
+├── src/
+│   ├── AuditEngine.ts
+│   ├── AuditWriter.ts
+│   ├── AuditReader.ts
+│   ├── AuditHasher.ts
+│   ├── AuditRetention.ts
+│   └── AuditExporter.ts
+Every important operation gets:
+who
+what
+when
+where
+why
+policy
+decision
+result
+evidence
+16. Event bus
+event-bus/
+│
+├── src/
+│   ├── EventBus.ts
+│   ├── EventPublisher.ts
+│   ├── EventSubscriber.ts
+│   ├── EventStore.ts
+│   ├── EventTypes.ts
+│   └── EventReplay.ts
+Cline events:
+content_start
+content_update
+content_end
+iteration_start
+iteration_end
+usage
+notice
+done
+error
+become Synapse events:
+cline.*
+agent.*
+policy.*
+approval.*
+verification.*
+security.*
+world.*
+simulation.*
+17. Observability
+observability/
+│
+├── src/
+│   ├── Metrics.ts
+│   ├── Tracing.ts
+│   ├── Logging.ts
+│   ├── AgentTelemetry.ts
+│   ├── RuntimeTelemetry.ts
+│   ├── CostTelemetry.ts
+│   └── HealthSignals.ts
+Track:
+tokens
+cost
+runtime
+iterations
+tool calls
+errors
+approvals
+rejections
+verification failures
+retries
+CPU
+memory
+network
+18. Scheduler
+Don't blindly copy Cline's scheduler.
+Synapse needs a governance-aware scheduler.
+scheduler/
+│
+├── src/
+│   ├── Scheduler.ts
+│   ├── ScheduleRepository.ts
+│   ├── ScheduleRunner.ts
+│   ├── ScheduleLock.ts
+│   ├── SchedulePolicy.ts
+│   ├── ScheduleRecovery.ts
+│   └── ScheduleExecution.ts
+Architecture:
+Schedule
+   ↓
+Policy
+   ↓
+Create Cline execution
+   ↓
+Monitor
+   ↓
+Verify
+   ↓
+Audit
+Cline already has schedule/hub infrastructure, so Synapse should reuse it where appropriate rather than creating a second execution engine. Cline's package documentation explicitly places scheduled execution and schedule persistence in its core hub services. 
+19. Connector manager
+Cline's CLI currently has connector functionality and integrations; preserve the underlying capability but put Synapse governance around it. 
+connector-manager/
+│
+├── src/
+│   ├── ConnectorManager.ts
+│   ├── ConnectorRegistry.ts
+│   ├── ConnectorAdapter.ts
+│   ├── ConnectorAuth.ts
+│   ├── ConnectorPolicy.ts
+│   ├── ConnectorHealth.ts
+│   └── adapters/
+│       ├── telegram/
+│       ├── slack/
+│       ├── discord/
+│       ├── whatsapp/
+│       ├── gchat/
+│       └── linear/
+20. External agent control
+This is the part that addresses your requirement that Synapse eventually control agents from other companies, while Cline remains Synapse's own execution engine.
+Do not pretend external agents are Cline sessions.
+Create:
+agent-adapters/
+│
+├── src/
+│   ├── AgentAdapter.ts
+│   ├── AgentAdapterRegistry.ts
+│   ├── ExternalAgent.ts
+│   ├── ExternalSession.ts
+│   │
+│   ├── protocols/
+│   │   ├── ACPAdapter.ts
+│   │   ├── MCPAdapter.ts
+│   │   ├── HTTPAgentAdapter.ts
+│   │   └── WebSocketAgentAdapter.ts
+│   │
+│   └── capabilities/
+│       ├── observe.ts
+│       ├── pause.ts
+│       ├── resume.ts
+│       ├── stop.ts
+│       ├── approve.ts
+│       └── verify.ts
+But:
+Cline = fully controlled
+External agents = capability-dependent controlled
+If an external agent cannot be stopped, Synapse must explicitly show:
+CONTROL CAPABILITY:
+STOP ❌
+PAUSE ❌
+OBSERVE ✓
+VERIFY ✓
+Never fake control.
+21. World Engine
+This is your digital-twin system.
+world-engine/
+│
+├── src/
+│   ├── WorldEngine.ts
+│   │
+│   ├── ingestion/
+│   │   ├── DataIngestion.ts
+│   │   ├── CSVImporter.ts
+│   │   ├── JSONImporter.ts
+│   │   ├── DatabaseImporter.ts
+│   │   ├── APIImporter.ts
+│   │   ├── LogImporter.ts
+│   │   └── EventStreamImporter.ts
+│   │
+│   ├── model/
+│   │   ├── WorldModel.ts
+│   │   ├── Entity.ts
+│   │   ├── Relationship.ts
+│   │   ├── State.ts
+│   │   ├── Event.ts
+│   │   └── Constraint.ts
+│   │
+│   ├── extraction/
+│   │   ├── EntityExtractor.ts
+│   │   ├── RelationshipExtractor.ts
+│   │   ├── DependencyExtractor.ts
+│   │   └── SchemaInference.ts
+│   │
+│   ├── twin/
+│   │   ├── DigitalTwin.ts
+│   │   ├── TwinBuilder.ts
+│   │   ├── TwinSynchronizer.ts
+│   │   └── TwinSnapshot.ts
+│   │
+│   └── queries/
+│       ├── WorldQuery.ts
+│       └── DependencyQuery.ts
+22. Simulation engine
+Separate from visualization.
+simulation-engine/
+│
+├── src/
+│   ├── SimulationEngine.ts
+│   ├── SimulationRun.ts
+│   ├── Scenario.ts
+│   ├── ScenarioBuilder.ts
+│   ├── SimulationClock.ts
+│   ├── EventSimulator.ts
+│   ├── StateTransition.ts
+│   ├── RuleEngine.ts
+│   ├── ConstraintEngine.ts
+│   ├── AgentSandbox.ts
+│   ├── MonteCarloRunner.ts
+│   ├── ResultAnalyzer.ts
+│   └── ComparisonEngine.ts
+Flow:
+real world
+   ↓
+snapshot
+   ↓
+clone
+   ↓
+modify variables
+   ↓
+simulate
+   ↓
+observe
+   ↓
+compare with baseline
+23. Twin engine
+twin-engine/
+│
+├── src/
+│   ├── TwinEngine.ts
+│   ├── TwinRegistry.ts
+│   ├── TwinLifecycle.ts
+│   ├── TwinVersioning.ts
+│   ├── TwinSync.ts
+│   ├── TwinDiff.ts
+│   └── TwinConfidence.ts
+Important:
+Every twin should have:
+source
+timestamp
+version
+confidence
+freshness
+assumptions
+coverage
+So Synapse never presents an inferred model as ground truth.
+24. Database layer
+packages/database/
+│
+├── src/
+│   ├── client.ts
+│   ├── transaction.ts
+│   ├── repositories/
+│   │   ├── AgentRepository.ts
+│   │   ├── SessionRepository.ts
+│   │   ├── TaskRepository.ts
+│   │   ├── PolicyRepository.ts
+│   │   ├── ApprovalRepository.ts
+│   │   ├── AuditRepository.ts
+│   │   ├── VerificationRepository.ts
+│   │   ├── ScheduleRepository.ts
+│   │   ├── ConnectorRepository.ts
+│   │   ├── WorldRepository.ts
+│   │   └── SimulationRepository.ts
+│   │
+│   └── schemas/
+│       ├── agents.ts
+│       ├── sessions.ts
+│       ├── tasks.ts
+│       ├── policies.ts
+│       ├── approvals.ts
+│       ├── audits.ts
+│       ├── verification.ts
+│       ├── schedules.ts
+│       ├── worlds.ts
+│       └── simulations.ts
+25. Database source-of-truth rule
+Very important.
+Cline owns:
+agent execution state
+messages
+Cline session data
+Cline team state
+Cline runtime state
+Synapse owns:
+tenant
+agent identity
+authorization
+policies
+approvals
+governance
+audit
+verification
+external mappings
+world models
+simulation metadata
+Do not duplicate Cline's entire session database into PostgreSQL.
+Cline's current SDK explicitly provides stateful session/storage functionality. 
+26. Contracts package
+contracts/
+│
+├── src/
+│   ├── agent.ts
+│   ├── session.ts
+│   ├── events.ts
+│   ├── commands.ts
+│   ├── policy.ts
+│   ├── approval.ts
+│   ├── verification.ts
+│   ├── security.ts
+│   ├── world.ts
+│   └── simulation.ts
+Use schemas such as Zod.
+Every API boundary gets validation.
+27. Security package
+security/
+│
+├── src/
+│   ├── authentication/
+│   ├── authorization/
+│   ├── encryption/
+│   ├── secrets/
+│   ├── workspace/
+│   ├── network/
+│   ├── sandbox/
+│   ├── rate-limit/
+│   ├── threat-detection/
+│   └── security-events/
+Never let frontend directly access:
+API keys
+database credentials
+Cline internal storage
+workspace filesystem
+runtime processes
+28. Secrets
+secrets/
+│
+├── src/
+│   ├── SecretManager.ts
+│   ├── Encryption.ts
+│   ├── SecretResolver.ts
+│   ├── SecretRedactor.ts
+│   └── SecretRotation.ts
+API:
+store()
+resolve()
+rotate()
+revoke()
+redact()
+Logs must pass through the redactor.
+29. Tenancy
+tenancy/
+│
+├── src/
+│   ├── TenantContext.ts
+│   ├── TenantResolver.ts
+│   ├── TenantIsolation.ts
+│   ├── TenantLimits.ts
+│   └── TenantRepository.ts
+Every request:
+request
+ ↓
+identity
+ ↓
+tenant
+ ↓
+authorization
+ ↓
+resource
+No cross-tenant resource access.
+30. Worker architecture
+apps/worker/
+│
+├── src/
+│   ├── main.ts
+│   │
+│   ├── workers/
+│   │   ├── agent-worker.ts
+│   │   ├── verification-worker.ts
+│   │   ├── simulation-worker.ts
+│   │   ├── audit-worker.ts
+│   │   └── telemetry-worker.ts
+│   │
+│   ├── queues/
+│   │   ├── agent.queue.ts
+│   │   ├── verification.queue.ts
+│   │   └── simulation.queue.ts
+│   │
+│   └── recovery/
+│       ├── retry.ts
+│       ├── dead-letter.ts
+│       └── recovery.ts
+The HTTP server should not become the place where long-running simulations and agent operations live.
+31. API architecture
+POST /api/agents
+GET  /api/agents
+GET  /api/agents/:id
+POST /api/agents/:id/start
+POST /api/agents/:id/pause
+POST /api/agents/:id/resume
+POST /api/agents/:id/abort
+POST /api/agents/:id/stop
+POST /api/agents/:id/kill
+GET /api/sessions
+GET /api/sessions/:id
+GET /api/sessions/:id/messages
+GET /api/sessions/:id/usage
+GET /api/approvals
+POST /api/approvals/:id/approve
+POST /api/approvals/:id/reject
+GET /api/policies
+POST /api/policies
+PUT /api/policies/:id
+POST /api/verifications
+GET /api/verifications/:id
+GET /api/audit
+POST /api/schedules
+GET /api/schedules
+GET /api/worlds
+POST /api/worlds
+GET /api/worlds/:id
+POST /api/worlds/:id/simulations
+GET /api/simulations/:id
+GET /api/simulations/:id/results
+32. WebSocket architecture
+One connection per application.
+/ws
+   │
+   └── authenticated connection
+          │
+          ├── agent events
+          ├── session events
+          ├── approval events
+          ├── verification events
+          ├── security events
+          ├── world events
+          └── simulation events
+Never:
+ApprovalModal → WebSocket
+AgentPage → WebSocket
+SessionPage → WebSocket
+Kanban → WebSocket
+Instead:
+App
+ │
+ └── WSConnectionProvider
+        │
+        └── Event Store
+              │
+              ├── Agent page
+              ├── Kanban
+              ├── Sessions
+              └── Approvals
+33. Agent lifecycle
+This should be the canonical lifecycle.
+CREATED
+   ↓
+QUEUED
+   ↓
+POLICY_CHECK
+   ↓
+STARTING
+   ↓
+RUNNING
+   │
+   ├───────────────┐
+   │               │
+   ▼               ▼
+WAITING         VERIFICATION
+   │               │
+   └──→ RUNNING    │
+                   ▼
+              PASSED / FAILED
+                   │
+                   ▼
+               COMPLETED
+Failure:
+RUNNING
+ ↓
+ERROR
+ ↓
+RECOVERY
+ ↓
+RETRY
+Kill:
+ANY ACTIVE STATE
+       ↓
+   KILL REQUEST
+       ↓
+   SAFETY CHECK
+       ↓
+   CLINE ABORT/STOP
+       ↓
+   PROCESS CONFIRMATION
+       ↓
+   KILLED
+34. Verification lifecycle
+Agent completion
+      ↓
+Freeze relevant state
+      ↓
+Collect evidence
+      ↓
+Run verification plan
+      ↓
+Tests
+      ↓
+Build
+      ↓
+Git diff
+      ↓
+Contracts
+      ↓
+Security
+      ↓
+Behavioral checks
+      ↓
+Verdict
+Possible result:
+PASS
+FAIL
+INCONCLUSIVE
+Never reduce everything to boolean success.
+35. World/agent integration
+This is where your more ambitious idea comes together.
+Cline Agent
+     │
+     ▼
+Proposed Action
+     │
+     ▼
+Synapse Safety
+     │
+     ▼
+World Twin
+     │
+     ▼
+Simulation
+     │
+     ▼
+Predicted Consequences
+     │
+     ▼
+Verification
+     │
+     ├── BLOCK
+     ├── APPROVE
+     └── EXECUTE
+That gives Synapse something much more interesting than a Cline dashboard.
+36. Tests
+Make tests a first-class architecture layer.
+tests/
+│
+├── unit/
+│   ├── policy/
+│   ├── approval/
+│   ├── safety/
+│   ├── verification/
+│   ├── tenancy/
+│   └── world/
+│
+├── integration/
+│   ├── cline-engine/
+│   ├── database/
+│   ├── websocket/
+│   ├── policy/
+│   └── verification/
+│
+├── e2e/
+│   ├── agent-lifecycle/
+│   ├── approval/
+│   ├── kill-switch/
+│   ├── verification/
+│   └── simulation/
+│
+├── security/
+│   ├── tenant-isolation/
+│   ├── secret-leak/
+│   ├── command-injection/
+│   ├── path-traversal/
+│   └── prompt-injection/
+│
+└── chaos/
+    ├── runtime-crash/
+    ├── database-loss/
+    ├── websocket-loss/
+    ├── worker-crash/
+    └── agent-timeout/
+37. Most important implementation rule for the coding agent
+Give Antigravity/AGY this rule:
+Never invent a Cline API.
+Before using a Cline function:
+search upstream source
+        ↓
+find implementation
+        ↓
+find type definition
+        ↓
+find tests
+        ↓
+use actual API
+Cline's own repository notes that SDK packages resolve through compiled dist/ and need SDK rebuilding after source/dependency changes, so the development workflow must account for that rather than letting an agent assume hot reload works. 
+38. Another critical rule: don't duplicate Cline
+AGY should not create:
+SynapseAgentRuntime
+SynapseToolRuntime
+SynapseSessionEngine
+SynapseLLMEngine
+SynapseTeamEngine
+that replicate Cline.
+Instead:
+Synapse
+   ↓
+ClineEngineAdapter
+   ↓
+Cline
+Synapse adds control, not another agent runtime.
+39. Cline CLI
+Because we're forking the repository, the CLI is no longer something the customer installs.
+It becomes an internal capability.
+Cline's CLI currently exposes commands including mcp, dev, doctor, history, hook, plugin, schedule, hub, update, version, and kanban. 
+We should therefore preserve the useful Cline capabilities in the fork, but Synapse's backend decides when/how they are exposed.
+For example:
+Cline CLI
+    ↓
+Synapse Runtime
+    ↓
+Synapse Policy
+    ↓
+Cline execution
+not:
+User → arbitrary shell → Cline
+40. Cline Kanban
+Same principle.
+Don't make a completely separate Synapse execution system just because Cline has a Kanban application.
+Cline's CLI itself currently exposes kanban. 
+Synapse should instead treat Kanban as:
+Synapse Task
+      ↓
+Cline Session / Team
+      ↓
+Cline task execution
+      ↓
+Synapse events
+      ↓
+Synapse verification
+Later the Synapse frontend can provide the superior Kanban UI.
+41. Cline Teams
+Use Cline Teams rather than inventing Synapse's own multi-agent runtime.
+Synapse Team
+      ↓
+Cline Team
+      ↓
+Cline teammates
+      ↓
+Cline task board / mailbox / mission state
+      ↓
+Synapse observes
+      ↓
+Synapse governs
+      ↓
+Synapse verifies
+This is one of the places where forking Cline gives you a major advantage.
+42. Plugins and hooks
+Don't throw these away.
+Cline's current SDK/CLI architecture explicitly supports plugins and hooks. 
+Synapse should have:
+packages/control-extensions/
+│
+├── src/
+│   ├── ClinePluginBridge.ts
+│   ├── ClineHookBridge.ts
+│   ├── ToolPolicyHook.ts
+│   ├── AuditHook.ts
+│   ├── SecurityHook.ts
+│   └── VerificationHook.ts
+The important distinction:
+Cline hook
+   ↓
+Synapse interception
+   ↓
+policy / audit / safety
+43. Final backend architecture
+The whole system becomes:
+                           SYNAPSE BACKEND
+                                 │
+       ┌─────────────────────────┼──────────────────────────┐
+       │                         │                          │
+   API SERVER               CONTROL PLANE              EVENT BUS
+       │                         │                          │
+       │             ┌───────────┼───────────┐              │
+       │             │           │           │              │
+       │          Policy      Safety      Approval           │
+       │             │           │           │              │
+       │             └───────────┼───────────┘              │
+       │                         │                          │
+       │                    ENGINE ADAPTER                  │
+       │                         │                          │
+       │                    ┌────▼────┐                     │
+       │                    │  CLINE  │                     │
+       │                    │  ENGINE │                     │
+       │                    └────┬────┘                     │
+       │                         │                          │
+       │              ┌──────────┼──────────┐               │
+       │              │          │          │               │
+       │           Agents      Teams      Tools             │
+       │              │          │          │               │
+       │              └──────────┼──────────┘               │
+       │                         │                          │
+       │                     LLM Layer                       │
+       │                                                     │
+       ├────────────── Verification Engine                   │
+       │                                                     │
+       ├────────────── Audit Engine                          │
+       │                                                     │
+       ├────────────── Runtime Manager                       │
+       │                                                     │
+       ├────────────── Scheduler                             │
+       │                                                     │
+       ├────────────── Connector Manager                     │
+       │                                                     │
+       ├────────────── External Agent Adapters               │
+       │                                                     │
+       └────────────── WORLD ENGINE                           │
+                              │                              │
+                    ┌─────────┴─────────┐                    │
+                    │                   │                    │
+               DIGITAL TWIN        SIMULATION                │
+                    │                   │                    │
+                    └─────────┬─────────┘                    │
+                              │                              │
+                         VERIFICATION                        │
+                              │                              │
+                         AUDIT / EVIDENCE                     │
+The key idea
+Cline is the brain/execution engine.
+Synapse is the operating/control system around that brain.
+And the third layer is:
+World Engine = model of the environment in which the agent operates.
+So the eventual loop is:
+PERCEIVE
+   ↓
+CLINE REASON
+   ↓
+PROPOSE ACTION
+   ↓
+SYNAPSE POLICY
+   ↓
+SAFETY
+   ↓
+SIMULATE / DIGITAL TWIN
+   ↓
+APPROVAL IF REQUIRED
+   ↓
+CLINE EXECUTES
+   ↓
+OBSERVE
+   ↓
+VERIFY
+   ↓
+AUDIT
+   ↓
+UPDATE WORLD MODEL
+   ↓
+NEXT ACTION

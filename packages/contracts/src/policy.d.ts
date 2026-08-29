@@ -1,0 +1,313 @@
+import { z } from "zod";
+export declare const PolicyDecisionSchema: z.ZodEnum<["ALLOW", "BLOCK", "REQUIRE_APPROVAL"]>;
+export type PolicyDecision = z.infer<typeof PolicyDecisionSchema>;
+export declare const PolicyRiskLevelSchema: z.ZodEnum<["LOW", "MEDIUM", "HIGH", "CRITICAL"]>;
+export type PolicyRiskLevel = z.infer<typeof PolicyRiskLevelSchema>;
+export declare const PolicyScopeSchema: z.ZodEnum<["global", "tenant", "workspace", "agent", "tool", "command", "filesystem", "network"]>;
+export type PolicyScope = z.infer<typeof PolicyScopeSchema>;
+export declare const RuleOperatorSchema: z.ZodEnum<["EQUALS", "NOT_EQUALS", "CONTAINS", "NOT_CONTAINS", "STARTS_WITH", "ENDS_WITH", "MATCHES_REGEX", "IN", "NOT_IN", "GREATER_THAN", "LESS_THAN", "IS_EMPTY", "IS_NOT_EMPTY"]>;
+export type RuleOperator = z.infer<typeof RuleOperatorSchema>;
+export declare const PolicyRuleConditionSchema: z.ZodObject<{
+    field: z.ZodString;
+    operator: z.ZodEnum<["EQUALS", "NOT_EQUALS", "CONTAINS", "NOT_CONTAINS", "STARTS_WITH", "ENDS_WITH", "MATCHES_REGEX", "IN", "NOT_IN", "GREATER_THAN", "LESS_THAN", "IS_EMPTY", "IS_NOT_EMPTY"]>;
+    value: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber, z.ZodBoolean, z.ZodArray<z.ZodString, "many">, z.ZodArray<z.ZodNumber, "many">]>>;
+}, "strip", z.ZodTypeAny, {
+    field: string;
+    operator: "EQUALS" | "NOT_EQUALS" | "CONTAINS" | "NOT_CONTAINS" | "STARTS_WITH" | "ENDS_WITH" | "MATCHES_REGEX" | "IN" | "NOT_IN" | "GREATER_THAN" | "LESS_THAN" | "IS_EMPTY" | "IS_NOT_EMPTY";
+    value?: string | number | boolean | string[] | number[] | undefined;
+}, {
+    field: string;
+    operator: "EQUALS" | "NOT_EQUALS" | "CONTAINS" | "NOT_CONTAINS" | "STARTS_WITH" | "ENDS_WITH" | "MATCHES_REGEX" | "IN" | "NOT_IN" | "GREATER_THAN" | "LESS_THAN" | "IS_EMPTY" | "IS_NOT_EMPTY";
+    value?: string | number | boolean | string[] | number[] | undefined;
+}>;
+export type PolicyRuleCondition = z.infer<typeof PolicyRuleConditionSchema>;
+export declare const RuleLogicalOperatorSchema: z.ZodEnum<["AND", "OR", "NOT"]>;
+export type RuleLogicalOperator = z.infer<typeof RuleLogicalOperatorSchema>;
+export type PolicyRuleGroup = {
+    operator: RuleLogicalOperator;
+    conditions: Array<PolicyRuleCondition | PolicyRuleGroup>;
+};
+export declare const PolicyRuleGroupSchema: z.ZodType<PolicyRuleGroup>;
+export declare const PolicyRuleSchema: z.ZodObject<{
+    id: z.ZodString;
+    name: z.ZodString;
+    description: z.ZodOptional<z.ZodString>;
+    target: z.ZodString;
+    priority: z.ZodDefault<z.ZodNumber>;
+    conditions: z.ZodType<PolicyRuleGroup, z.ZodTypeDef, PolicyRuleGroup>;
+    decision: z.ZodEnum<["ALLOW", "BLOCK", "REQUIRE_APPROVAL"]>;
+    riskLevel: z.ZodDefault<z.ZodEnum<["LOW", "MEDIUM", "HIGH", "CRITICAL"]>>;
+    reason: z.ZodOptional<z.ZodString>;
+    remediation: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    name: string;
+    riskLevel: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+    id: string;
+    priority: number;
+    conditions: PolicyRuleGroup;
+    target: string;
+    decision: "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL";
+    description?: string | undefined;
+    reason?: string | undefined;
+    remediation?: string | undefined;
+}, {
+    name: string;
+    id: string;
+    conditions: PolicyRuleGroup;
+    target: string;
+    decision: "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL";
+    description?: string | undefined;
+    riskLevel?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | undefined;
+    priority?: number | undefined;
+    reason?: string | undefined;
+    remediation?: string | undefined;
+}>;
+export type PolicyRule = z.infer<typeof PolicyRuleSchema>;
+export declare const PolicyContextSchema: z.ZodObject<{
+    tenantId: z.ZodString;
+    agentId: z.ZodOptional<z.ZodString>;
+    sessionId: z.ZodOptional<z.ZodString>;
+    taskId: z.ZodOptional<z.ZodString>;
+    workspaceId: z.ZodOptional<z.ZodString>;
+    userId: z.ZodOptional<z.ZodString>;
+    action: z.ZodString;
+    target: z.ZodString;
+    parameters: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+    environment: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodString>>;
+    timestamp: z.ZodDefault<z.ZodNumber>;
+}, "strip", z.ZodTypeAny, {
+    parameters: Record<string, unknown>;
+    tenantId: string;
+    environment: Record<string, string>;
+    timestamp: number;
+    target: string;
+    action: string;
+    agentId?: string | undefined;
+    taskId?: string | undefined;
+    workspaceId?: string | undefined;
+    sessionId?: string | undefined;
+    userId?: string | undefined;
+}, {
+    tenantId: string;
+    target: string;
+    action: string;
+    parameters?: Record<string, unknown> | undefined;
+    environment?: Record<string, string> | undefined;
+    agentId?: string | undefined;
+    taskId?: string | undefined;
+    workspaceId?: string | undefined;
+    sessionId?: string | undefined;
+    timestamp?: number | undefined;
+    userId?: string | undefined;
+}>;
+export type PolicyContext = z.infer<typeof PolicyContextSchema>;
+export declare const PolicyEvaluationResultSchema: z.ZodObject<{
+    decision: z.ZodEnum<["ALLOW", "BLOCK", "REQUIRE_APPROVAL"]>;
+    riskLevel: z.ZodEnum<["LOW", "MEDIUM", "HIGH", "CRITICAL"]>;
+    matchedRuleId: z.ZodOptional<z.ZodString>;
+    matchedRuleName: z.ZodOptional<z.ZodString>;
+    reason: z.ZodString;
+    remediation: z.ZodOptional<z.ZodString>;
+    evaluationTimestamp: z.ZodDefault<z.ZodNumber>;
+    evaluationDurationMs: z.ZodDefault<z.ZodNumber>;
+}, "strip", z.ZodTypeAny, {
+    riskLevel: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+    decision: "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL";
+    reason: string;
+    evaluationTimestamp: number;
+    evaluationDurationMs: number;
+    remediation?: string | undefined;
+    matchedRuleId?: string | undefined;
+    matchedRuleName?: string | undefined;
+}, {
+    riskLevel: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+    decision: "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL";
+    reason: string;
+    remediation?: string | undefined;
+    matchedRuleId?: string | undefined;
+    matchedRuleName?: string | undefined;
+    evaluationTimestamp?: number | undefined;
+    evaluationDurationMs?: number | undefined;
+}>;
+export type PolicyEvaluationResult = z.infer<typeof PolicyEvaluationResultSchema>;
+export declare const SynapsePolicySchema: z.ZodObject<{
+    id: z.ZodString;
+    tenantId: z.ZodString;
+    name: z.ZodString;
+    description: z.ZodOptional<z.ZodString>;
+    scope: z.ZodDefault<z.ZodEnum<["global", "tenant", "workspace", "agent", "tool", "command", "filesystem", "network"]>>;
+    targetId: z.ZodOptional<z.ZodString>;
+    enabled: z.ZodDefault<z.ZodBoolean>;
+    rules: z.ZodDefault<z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        name: z.ZodString;
+        description: z.ZodOptional<z.ZodString>;
+        target: z.ZodString;
+        priority: z.ZodDefault<z.ZodNumber>;
+        conditions: z.ZodType<PolicyRuleGroup, z.ZodTypeDef, PolicyRuleGroup>;
+        decision: z.ZodEnum<["ALLOW", "BLOCK", "REQUIRE_APPROVAL"]>;
+        riskLevel: z.ZodDefault<z.ZodEnum<["LOW", "MEDIUM", "HIGH", "CRITICAL"]>>;
+        reason: z.ZodOptional<z.ZodString>;
+        remediation: z.ZodOptional<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        name: string;
+        riskLevel: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+        id: string;
+        priority: number;
+        conditions: PolicyRuleGroup;
+        target: string;
+        decision: "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL";
+        description?: string | undefined;
+        reason?: string | undefined;
+        remediation?: string | undefined;
+    }, {
+        name: string;
+        id: string;
+        conditions: PolicyRuleGroup;
+        target: string;
+        decision: "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL";
+        description?: string | undefined;
+        riskLevel?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | undefined;
+        priority?: number | undefined;
+        reason?: string | undefined;
+        remediation?: string | undefined;
+    }>, "many">>;
+    defaultDecision: z.ZodDefault<z.ZodEnum<["ALLOW", "BLOCK", "REQUIRE_APPROVAL"]>>;
+    createdAt: z.ZodDefault<z.ZodString>;
+    updatedAt: z.ZodDefault<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    name: string;
+    enabled: boolean;
+    id: string;
+    tenantId: string;
+    createdAt: string;
+    updatedAt: string;
+    scope: "filesystem" | "network" | "workspace" | "global" | "tenant" | "agent" | "tool" | "command";
+    rules: {
+        name: string;
+        riskLevel: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+        id: string;
+        priority: number;
+        conditions: PolicyRuleGroup;
+        target: string;
+        decision: "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL";
+        description?: string | undefined;
+        reason?: string | undefined;
+        remediation?: string | undefined;
+    }[];
+    defaultDecision: "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL";
+    description?: string | undefined;
+    targetId?: string | undefined;
+}, {
+    name: string;
+    id: string;
+    tenantId: string;
+    description?: string | undefined;
+    enabled?: boolean | undefined;
+    createdAt?: string | undefined;
+    updatedAt?: string | undefined;
+    scope?: "filesystem" | "network" | "workspace" | "global" | "tenant" | "agent" | "tool" | "command" | undefined;
+    targetId?: string | undefined;
+    rules?: {
+        name: string;
+        id: string;
+        conditions: PolicyRuleGroup;
+        target: string;
+        decision: "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL";
+        description?: string | undefined;
+        riskLevel?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | undefined;
+        priority?: number | undefined;
+        reason?: string | undefined;
+        remediation?: string | undefined;
+    }[] | undefined;
+    defaultDecision?: "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL" | undefined;
+}>;
+export type SynapsePolicy = z.infer<typeof SynapsePolicySchema>;
+export declare const CreatePolicyRequestSchema: z.ZodObject<Omit<{
+    id: z.ZodString;
+    tenantId: z.ZodString;
+    name: z.ZodString;
+    description: z.ZodOptional<z.ZodString>;
+    scope: z.ZodDefault<z.ZodEnum<["global", "tenant", "workspace", "agent", "tool", "command", "filesystem", "network"]>>;
+    targetId: z.ZodOptional<z.ZodString>;
+    enabled: z.ZodDefault<z.ZodBoolean>;
+    rules: z.ZodDefault<z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        name: z.ZodString;
+        description: z.ZodOptional<z.ZodString>;
+        target: z.ZodString;
+        priority: z.ZodDefault<z.ZodNumber>;
+        conditions: z.ZodType<PolicyRuleGroup, z.ZodTypeDef, PolicyRuleGroup>;
+        decision: z.ZodEnum<["ALLOW", "BLOCK", "REQUIRE_APPROVAL"]>;
+        riskLevel: z.ZodDefault<z.ZodEnum<["LOW", "MEDIUM", "HIGH", "CRITICAL"]>>;
+        reason: z.ZodOptional<z.ZodString>;
+        remediation: z.ZodOptional<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        name: string;
+        riskLevel: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+        id: string;
+        priority: number;
+        conditions: PolicyRuleGroup;
+        target: string;
+        decision: "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL";
+        description?: string | undefined;
+        reason?: string | undefined;
+        remediation?: string | undefined;
+    }, {
+        name: string;
+        id: string;
+        conditions: PolicyRuleGroup;
+        target: string;
+        decision: "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL";
+        description?: string | undefined;
+        riskLevel?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | undefined;
+        priority?: number | undefined;
+        reason?: string | undefined;
+        remediation?: string | undefined;
+    }>, "many">>;
+    defaultDecision: z.ZodDefault<z.ZodEnum<["ALLOW", "BLOCK", "REQUIRE_APPROVAL"]>>;
+    createdAt: z.ZodDefault<z.ZodString>;
+    updatedAt: z.ZodDefault<z.ZodString>;
+}, "id" | "createdAt" | "updatedAt">, "strip", z.ZodTypeAny, {
+    name: string;
+    enabled: boolean;
+    tenantId: string;
+    scope: "filesystem" | "network" | "workspace" | "global" | "tenant" | "agent" | "tool" | "command";
+    rules: {
+        name: string;
+        riskLevel: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+        id: string;
+        priority: number;
+        conditions: PolicyRuleGroup;
+        target: string;
+        decision: "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL";
+        description?: string | undefined;
+        reason?: string | undefined;
+        remediation?: string | undefined;
+    }[];
+    defaultDecision: "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL";
+    description?: string | undefined;
+    targetId?: string | undefined;
+}, {
+    name: string;
+    tenantId: string;
+    description?: string | undefined;
+    enabled?: boolean | undefined;
+    scope?: "filesystem" | "network" | "workspace" | "global" | "tenant" | "agent" | "tool" | "command" | undefined;
+    targetId?: string | undefined;
+    rules?: {
+        name: string;
+        id: string;
+        conditions: PolicyRuleGroup;
+        target: string;
+        decision: "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL";
+        description?: string | undefined;
+        riskLevel?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | undefined;
+        priority?: number | undefined;
+        reason?: string | undefined;
+        remediation?: string | undefined;
+    }[] | undefined;
+    defaultDecision?: "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL" | undefined;
+}>;
+export type CreatePolicyRequest = z.infer<typeof CreatePolicyRequestSchema>;
+//# sourceMappingURL=policy.d.ts.map

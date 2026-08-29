@@ -1,0 +1,34 @@
+{
+  "name": "@synapse/backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@synapse/audit-engine": "*",
+    "@synapse/connector-manager": "*",
+    "@synapse/contracts": "*",
+    "@synapse/engine-adapter": "*",
+    "@synapse/event-bus": "*",
+    "@synapse/external-agents": "*",
+    "@synapse/observability": "*",
+    "@synapse/scheduler": "*",
+    "@synapse/security": "*",
+    "@synapse/tenancy": "*",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "helmet": "^8.0.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.4.0"
+  }
+}
