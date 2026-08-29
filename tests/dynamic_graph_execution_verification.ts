@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { ClineEngine } from "@synapse/engine-adapter";
+import { ClineEngine, getGraphTools } from "@synapse/engine-adapter";
 import { ExecutionGraphEngine } from "@synapse/control-plane";
 import { ToolGateway } from "@synapse/tool-gateway";
 import crypto from "node:crypto";
@@ -72,15 +72,14 @@ describe("SYNAPSE-OS Dynamic Execution Graph Integration", () => {
 
   test("Simulation: Branch evaluation recommends safe paths", async () => {
     const simulateTool = getGraphTools(graphEngine).find((t: any) => t.name === "simulate_execution_branch");
-    
     const simResultStr = await simulateTool.execute({
       scenario: "database schema is wrong",
       proposedAction: "modify_code (schema change)"
     }, {} as any);
     
     const simResult = JSON.parse(simResultStr as string);
-    expect(simResult.possibleFailure).toBe("8%");
-    expect(simResult.recommendation).toContain("Simulation advises creating a staging migration");
+    expect(simResult.outcomes.failureRate).toBeDefined();
+    expect(simResult.recommendedBranch).toContain("staging migration");
   });
 
   test("Graph Transition: Path changes dynamically based on context", () => {
@@ -139,38 +138,4 @@ describe("SYNAPSE-OS Dynamic Execution Graph Integration", () => {
   });
 });
 
-// Polyfill getGraphTools since it's an internal function not exported directly
-// We can just import it dynamically or copy its logic for the test
-function getGraphTools(engine: any) {
-  return [
-    {
-      name: "submit_execution_plan",
-      execute: async (input: any) => {
-        const plan = engine.replan(input.nodes || [], input.edges || [], "Initial plan submitted by Cline");
-        return `Plan successfully submitted and persisted as version ${plan.version}. Synapse is now governing this execution graph.`;
-      }
-    },
-    {
-      name: "simulate_execution_branch",
-      execute: async (input: any) => {
-        if (input.proposedAction?.includes("modify_code") || input.scenario?.includes("database schema is wrong")) {
-          return JSON.stringify({
-            expected: "92% success",
-            possibleFailure: "8%",
-            impact: "17 dependent services",
-            rollback: "available",
-            recommendation: "Simulation advises creating a staging migration and verifying it before production."
-          }, null, 2);
-        }
-        return JSON.stringify({ expected: "99% success" });
-      }
-    },
-    {
-      name: "propose_replan",
-      execute: async (input: any) => {
-        const plan = engine.replan(input.newNodes || [], input.newEdges || [], input.reason);
-        return `Replan accepted. Graph version advanced to ${plan.version}.`;
-      }
-    }
-  ];
-}
+

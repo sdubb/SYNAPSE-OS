@@ -26,9 +26,13 @@
     "@cline/llms": "*",
     "@cline/shared": "*",
     "@synapse/contracts": "*",
+    "@synapse/control-plane": "*",
     "@synapse/database": "*",
+    "@synapse/simulation-engine": "*",
     "@synapse/tenancy": "*",
     "@synapse/tool-gateway": "*",
+    "@synapse/twin-engine": "*",
+    "@synapse/world-engine": "*",
     "zod": "^3.24.2"
   },
   "devDependencies": {

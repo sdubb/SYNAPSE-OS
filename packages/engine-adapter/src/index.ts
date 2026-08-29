@@ -8,3 +8,4 @@ export * from "./ClineWorkspace.js";
 export * from "./ClineSession.js";
 export * from "./ClineTeam.js";
 export * from "./ClineEngine.js";
+export * from "./graph/GraphTools.js";
