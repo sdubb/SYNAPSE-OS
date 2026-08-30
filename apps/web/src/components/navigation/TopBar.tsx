@@ -44,11 +44,10 @@ export function TopBar() {
   const handleKillSwitch = async () => {
     setIsTriggeringKillSwitch(true);
     try {
-      await api.triggerEmergencyKillSwitch(emergencyReason || 'Operator emergency stop triggered');
-      success('EMERGENCY KILL-SWITCH TRIGGERED', 'All active runtimes and agent execution loops halted.');
+      await api.triggerKillSwitch(emergencyReason || 'Operator emergency stop triggered');        success('Emergency kill-switch triggered', 'All active runtimes halted.');
       setIsEmergencyModalOpen(false);
     } catch (err) {
-      error('Kill-Switch Failed', (err as Error).message);
+      error('Kill-switch failed', (err as Error).message);
     } finally {
       setIsTriggeringKillSwitch(false);
     }

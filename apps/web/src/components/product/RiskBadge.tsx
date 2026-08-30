@@ -1,11 +1,10 @@
 import React from 'react';
 import { ShieldCheck, ShieldAlert, AlertTriangle, Flame } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { PolicyRiskLevel } from '@/types';
 
 export interface RiskBadgeProps {
-  level?: PolicyRiskLevel | string;
-  risk?: PolicyRiskLevel | string;
+  level?: string;
+  risk?: string;
   score?: number;
   showIcon?: boolean;
   size?: 'sm' | 'md' | 'lg';
@@ -21,27 +20,27 @@ export function RiskBadge({
   className,
 }: RiskBadgeProps) {
   const rawLevel = level || risk || 'LOW';
-  const normalized = String(rawLevel).toUpperCase() as 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  const normalized = String(rawLevel).toUpperCase();
 
   const configMap: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
     LOW: {
       label: 'LOW RISK',
-      color: 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40 shadow-glow-emerald',
+      color: 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40',
       icon: <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />,
     },
     MEDIUM: {
       label: 'MEDIUM RISK',
-      color: 'bg-yellow-950/60 text-yellow-300 border-yellow-500/40 shadow-glow-amber',
+      color: 'bg-yellow-950/60 text-yellow-300 border-yellow-500/40',
       icon: <AlertTriangle className="w-3.5 h-3.5 text-yellow-400 shrink-0" />,
     },
     HIGH: {
       label: 'HIGH RISK',
-      color: 'bg-orange-950/60 text-orange-300 border-orange-500/40 shadow-glow-amber',
+      color: 'bg-orange-950/60 text-orange-300 border-orange-500/40',
       icon: <ShieldAlert className="w-3.5 h-3.5 text-orange-400 shrink-0" />,
     },
     CRITICAL: {
       label: 'CRITICAL RISK',
-      color: 'bg-rose-950/70 text-rose-300 border-rose-500/50 shadow-glow-rose font-bold',
+      color: 'bg-rose-950/70 text-rose-300 border-rose-500/50 font-bold',
       icon: <Flame className="w-3.5 h-3.5 text-rose-400 shrink-0 animate-pulse" />,
     },
   };

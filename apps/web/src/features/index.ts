@@ -1,55 +1,25 @@
-export * from './runs/RunsPage.js';
-export * from './runs/RunDetailPage.js';
-export * from './runs/tabs/OverviewTab.js';
-export * from './runs/tabs/LiveTab.js';
-export * from './runs/tabs/TimelineTab.js';
-export * from './runs/tabs/ConversationTab.js';
-export * from './runs/tabs/ToolsTab.js';
-export * from './runs/tabs/FilesTab.js';
-export * from './runs/tabs/ChangesTab.js';
-export * from './runs/tabs/ApprovalsTab.js';
-export * from './runs/tabs/UsageTab.js';
-export * from './runs/tabs/VerificationTab.js';
-export * from './runs/tabs/AuditTab.js';
+// Missions
+export { MissionsPage } from './missions/MissionsPage';
+export { MissionDetailPage } from './missions/MissionDetailPage';
 
-export * from './agents/AgentsPage.js';
-export * from './agents/AgentDetailPage.js';
-export * from './agents/CreateAgentWizard.js';
+// Execution Graph
+export { ExecutionGraphPage } from './graph/ExecutionGraphPage';
+export { VersionComparisonPage } from './graph/VersionComparisonPage';
 
-export * from './tasks/TasksPage.js';
-export * from './tasks/TaskDetailPage.js';
-export * from './tasks/CreateTaskModal.js';
+// Workforce
+export { WorkforcePage } from './workforce/WorkforcePage';
 
-export * from './teams/TeamsPage.js';
-export * from './teams/TeamDetailPage.js';
-export * from './teams/TeamTopologyView.js';
-export * from './teams/CreateTeamModal.js';
+// Simulation
+export { SimulationPage } from './simulation/SimulationPage';
 
-export * from './command-center/index.js';
-export * from './operator/index.js';
+// Approvals
+export { ApprovalsPage } from './approvals/ApprovalsPage';
 
-// Trust Center & Verification
-export * from './verification/VerificationPage.js';
-export * from './verification/VerificationDetailPage.js';
+// Escalations
+export { EscalationsPage } from './escalations/EscalationsPage';
 
-// Governance & Security
-export * from './governance/ApprovalsPage.js';
-export * from './governance/PoliciesPage.js';
-export * from './governance/AuditPage.js';
+// Audit
+export { AuditPage } from './audit/AuditPage';
 
-// World Studio & Digital Twins
-export * from './world/WorldStudioPage.js';
-export * from './world/SimulationDrawer.js';
-
-// Automation & Workflows
-export * from './automation/AutomationPage.js';
-
-// Dynamic Capabilities & Workspaces
-export * from './capabilities/CapabilitiesPage.js';
-export * from './workspaces/WorkspacesPage.js';
-export * from './workspaces/WorkspaceDetailPage.js';
-
-// System Configuration
-export * from './system/ModelsPage.js';
-export * from './system/ProvidersPage.js';
-export * from './system/SettingsPage.js';
+// Runtime
+export { RuntimeDetailPage } from './runtime/RuntimeDetailPage';

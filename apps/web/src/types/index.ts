@@ -1,52 +1,135 @@
 /**
- * Synapse OS Frontend Type Definitions
- * Adheres strictly to @synapse/contracts specification
+ * SYNAPSE OS Operator Frontend — Type Definitions
+ * Aligned with @synapse/contracts Zod schemas.
+ * ZERO mock data. All types represent real backend entities.
  */
 
-export type RunStatus =
-  | 'initializing'
-  | 'active'
-  | 'running'
-  | 'paused'
-  | 'awaiting_input'
-  | 'awaiting_approval'
-  | 'verifying'
-  | 'completed'
-  | 'aborted'
-  | 'failed'
-  | 'timed_out'
-  | 'cancelled';
+// ============================================================
+// Core Enums
+// ============================================================
+
+export type GraphNodeState =
+  | 'CREATED' | 'QUEUED' | 'RUNNING' | 'WAITING' | 'BLOCKED'
+  | 'PAUSED' | 'FAILED' | 'VERIFYING' | 'COMPLETED' | 'TERMINATED';
+
+export type GraphNodeType =
+  | 'ACTION' | 'CONDITION' | 'BRANCH' | 'MERGE' | 'RETRY'
+  | 'FALLBACK' | 'APPROVAL' | 'ESCALATION' | 'VERIFICATION' | 'END';
+
+export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
+export type ApprovalStatus =
+  | 'pending' | 'approved' | 'rejected' | 'timed_out'
+  | 'auto_approved' | 'cancelled' | 'PENDING' | 'APPROVED'
+  | 'REJECTED' | 'TIMED_OUT' | 'AUTO_APPROVED' | 'CANCELLED';
+
+export type EscalationLevel = 'LEVEL_1' | 'LEVEL_2' | 'LEVEL_3' | 'LEVEL_4';
+export type EscalationStatus = 'PENDING' | 'RESOLVED' | 'REJECTED';
+
+export type SessionStatus =
+  | 'initializing' | 'active' | 'paused' | 'awaiting_input'
+  | 'awaiting_approval' | 'completed' | 'aborted' | 'failed' | 'timed_out';
 
 export type TaskStatus =
-  | 'backlog'
-  | 'ready'
-  | 'planned'
-  | 'authorized'
-  | 'queued'
-  | 'running'
-  | 'waiting'
-  | 'verifying'
-  | 'review'
-  | 'completed'
-  | 'failed'
-  | 'recovery'
-  | 'retry'
-  | 'cancelled';
+  | 'DRAFT' | 'UNDERSTANDING' | 'PLANNING' | 'AWAITING_CLARIFICATION'
+  | 'AWAITING_APPROVAL' | 'QUEUED' | 'EXECUTING' | 'PAUSED' | 'VERIFYING'
+  | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'BLOCKED' | 'RETRY'
+  | 'backlog' | 'planned' | 'authorized' | 'running' | 'verifying'
+  | 'review' | 'completed' | 'failed' | 'recovery' | 'cancelled' | 'blocked';
 
-export type TaskPriority = 'low' | 'medium' | 'high' | 'critical' | 'emergency';
+export type TaskPriority = 'low' | 'medium' | 'high' | 'critical' | 'emergency'
+  | 'LOW' | 'NORMAL' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'EMERGENCY';
 
-export type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
+export type VerificationVerdict = 'PASS' | 'FAIL' | 'INCONCLUSIVE' | 'SKIPPED';
 
-export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'timed_out' | 'auto_approved' | 'cancelled';
+export type SimulationStatus = 'draft' | 'running' | 'paused' | 'completed' | 'failed' | 'aborted';
 
-export type AgentHealthStatus = 'healthy' | 'degraded' | 'idle' | 'busy' | 'error';
+// ============================================================
+// Execution Graph
+// ============================================================
+
+export interface GraphNode {
+  id: string;
+  type: GraphNodeType;
+  title: string;
+  description?: string;
+  action?: string;
+  inputs?: Record<string, unknown>;
+  expectedOutcome?: string;
+  successCondition?: string;
+  failureCondition?: string;
+  riskLevel?: RiskLevel;
+  requiredCapabilities?: string[];
+  requiredApproval?: boolean;
+  simulationRequired?: boolean;
+  verificationRequired?: boolean;
+  state: GraphNodeState;
+  startedAt?: string;
+  completedAt?: string;
+  error?: string;
+  output?: unknown;
+  attempts: number;
+}
+
+export interface GraphEdge {
+  id: string;
+  from: string;
+  to: string;
+  condition?: string;
+  priority: number;
+  reason?: string;
+  traversalCount: number;
+}
+
+export interface ExecutionGraph {
+  id: string;
+  tenantId: string;
+  missionId: string;
+  taskId?: string;
+  version: number;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  objective: string;
+  risk: Record<string, unknown>;
+  approvalPoints: string[];
+  escalationPoints: string[];
+  verificationPlan: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PlanVersion {
+  version: number;
+  graphId: string;
+  createdAt: string;
+  reason: string;
+}
+
+// ============================================================
+// Escalation
+// ============================================================
+
+export interface EscalationRequest {
+  id: string;
+  graphId: string;
+  nodeId: string;
+  level: EscalationLevel;
+  reason: string;
+  context: Record<string, unknown>;
+  status: EscalationStatus;
+  createdAt: string;
+  resolvedAt?: string;
+  resolvedByUserId?: string;
+}
+
+// ============================================================
+// Session / Run
+// ============================================================
 
 export interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
-  cacheReadTokens?: number;
-  cacheWriteTokens?: number;
   estimatedCostUsd: number;
 }
 
@@ -63,149 +146,111 @@ export interface RuntimeMetadata {
   environmentVariables: Record<string, string>;
 }
 
-export interface RunItem {
+export interface SynapseSession {
   id: string;
-  title: string;
-  missionId?: string;
-  missionTitle?: string;
-  taskId?: string;
-  taskTitle?: string;
+  tenantId: string;
   agentId: string;
-  agentName: string;
-  agentRole: string;
-  agentAvatar?: string;
+  taskId?: string;
   clineSessionId: string;
   workspaceId: string;
-  workspaceName?: string;
-  status: RunStatus;
-  startedAt: string;
-  endedAt?: string;
-  durationSeconds: number;
+  runtimeId: string;
+  status: SessionStatus;
+  title?: string;
   tokenUsage: TokenUsage;
   runtimeMetadata: RuntimeMetadata;
-  activeStep?: string;
-  checkpoints: string[];
-  lastCheckpointId?: string;
-  tags: string[];
+  activeCheckpoints: string[];
+  metadata: Record<string, unknown>;
+  startedAt: string;
+  endedAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
-export interface TimelineEvent {
+// ============================================================
+// Task
+// ============================================================
+
+export interface TaskDependency {
+  taskId: string;
+  type: 'blocks' | 'requires_success' | 'parallel_with' | 'after';
+}
+
+export interface SynapseTask {
   id: string;
-  runId: string;
-  timestamp: string;
-  type:
-    | 'lifecycle'
-    | 'plan'
-    | 'activity'
-    | 'tool'
-    | 'question'
-    | 'approval'
-    | 'verification'
-    | 'file'
-    | 'test'
-    | 'error';
+  tenantId: string;
+  missionId?: string;
+  workspaceId: string;
+  assignedAgentId?: string;
+  teamId?: string;
   title: string;
-  description: string;
-  status: 'info' | 'success' | 'warning' | 'error' | 'running';
-  durationMs?: number;
-  metadata?: Record<string, unknown>;
+  description?: string;
+  objective: string;
+  instructions: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  dependencies: TaskDependency[];
+  successCriteria: string[];
+  expectedOutputs: string[];
+  tags: string[];
+  currentRunId?: string;
+  retryCount: number;
+  maxRetries: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
-export interface ConversationMessage {
-  id: string;
-  runId: string;
-  role: 'user' | 'agent' | 'system' | 'tool';
-  timestamp: string;
-  content: string;
-  summary?: string;
-  reason?: string;
-  actions?: Array<{ name: string; status: 'pending' | 'in_progress' | 'completed' | 'failed' }>;
-  evidence?: {
-    filesRead?: string[];
-    filesModified?: string[];
-    commands?: string[];
-    testsPassed?: number;
-    testsTotal?: number;
-    notes?: string;
-  };
-  questions?: Array<{
-    id: string;
-    question: string;
-    options?: string[];
-    answer?: string;
-  }>;
-  proposedChanges?: Array<{
-    file: string;
-    summary: string;
-    additions: number;
-    deletions: number;
-  }>;
-  approvalRequest?: {
-    requestId: string;
-    toolName: string;
-    parameters: Record<string, unknown>;
-    riskLevel: RiskLevel;
-    reason?: string;
-    status: ApprovalStatus;
-  };
-  toolCall?: {
-    toolName: string;
-    parameters: Record<string, unknown>;
-    result?: unknown;
-    status: 'running' | 'success' | 'failed';
-  };
-}
+// ============================================================
+// Agent
+// ============================================================
 
-export interface ToolExecution {
+export interface AgentDefinition {
   id: string;
-  runId: string;
-  callId: string;
-  toolName: string;
-  parameters: Record<string, unknown>;
-  result?: unknown;
-  status: 'success' | 'failed' | 'running' | 'blocked';
-  riskLevel: RiskLevel;
-  durationMs: number;
-  timestamp: string;
-  error?: string;
-  approvedBy?: string;
-}
-
-export interface FileRecord {
-  id: string;
-  runId: string;
-  path: string;
-  action: 'read' | 'created' | 'modified' | 'deleted';
-  sizeBytes: number;
-  linesAdded?: number;
-  linesRemoved?: number;
-  timestamp: string;
-  contentPreview?: string;
-}
-
-export interface CodeDiff {
-  id: string;
-  file: string;
-  language: string;
-  oldContent: string;
-  newContent: string;
-  additions: number;
-  deletions: number;
-  astModifications?: Array<{
-    type: string;
+  tenantId: string;
+  identity: {
     name: string;
     description: string;
-  }>;
+    role: string;
+    tags: string[];
+  };
+  instructions: {
+    systemPrompt: string;
+    objectives: string[];
+    behavioralRules: string[];
+  };
+  model: {
+    provider: string;
+    modelId: string;
+    temperature: number;
+  };
+  permissions: {
+    files: string[];
+    shell: string[];
+    network: string[];
+    productionAccess: boolean;
+  };
+  resourceLimits: {
+    maxRuntimeSeconds: number;
+    maxCostUsd?: number;
+    maxConcurrency: number;
+  };
+  createdAt: string;
+  updatedAt: string;
 }
 
-export interface ApprovalItem {
+// ============================================================
+// Approval
+// ============================================================
+
+export interface ToolApprovalRequest {
   id: string;
-  runId: string;
-  sessionId: string;
+  tenantId: string;
   agentId: string;
-  agentName: string;
+  missionId?: string;
   taskId?: string;
-  taskTitle?: string;
+  runId?: string;
+  sessionId: string;
+  workspaceId?: string;
+  clineSessionId: string;
   callId: string;
   toolName: string;
   toolParameters: Record<string, unknown>;
@@ -216,368 +261,212 @@ export interface ApprovalItem {
   expiresAt: string;
   createdAt: string;
   resolvedAt?: string;
-  decidedBy?: string;
-  decisionReason?: string;
 }
 
-export interface ModelUsageBreakdown {
-  modelId: string;
-  provider: string;
-  promptTokens: number;
-  completionTokens: number;
-  cacheTokens: number;
-  totalTokens: number;
-  costUsd: number;
-  callsCount: number;
-}
-
-export interface RunUsageReport {
-  runId: string;
-  totalTokens: number;
-  promptTokens: number;
-  completionTokens: number;
-  cacheReadTokens: number;
-  cacheWriteTokens: number;
-  totalCostUsd: number;
-  models: ModelUsageBreakdown[];
-  estimatedSavingsUsd: number;
-  tokenVelocityPerMinute: number;
-}
-
-export interface VerificationAssertion {
-  id: string;
-  name: string;
-  status: 'passed' | 'failed' | 'skipped';
-  details: string;
-  groundTruth: string;
-  agentClaim: string;
-  evidenceRef?: string;
-}
-
-export interface VerificationRun {
-  id: string;
-  runId: string;
-  taskId?: string;
-  verdict: 'PASS' | 'FAIL' | 'REVIEW';
-  score: number; // 0 to 100
-  passedAssertions: number;
-  totalAssertions: number;
-  assertions: VerificationAssertion[];
-  testsSummary: {
-    passed: number;
-    failed: number;
-    total: number;
-    durationMs: number;
-  };
-  policyViolations: number;
-  agentClaim: string;
-  groundTruthVerdict: string;
-  completedAt: string;
-}
+// ============================================================
+// Audit
+// ============================================================
 
 export interface AuditRecord {
   id: string;
-  runId: string;
-  sequenceNumber: number;
+  eventId: string;
   timestamp: string;
+  actor: string;
+  agent?: string;
+  mission?: string;
+  run?: string;
+  graphVersion?: number;
+  tool?: string;
+  result?: string;
+  eventType: string;
+  payload: Record<string, unknown>;
   hash: string;
   previousHash: string;
-  signature: string;
-  actorId: string;
-  actorType: 'user' | 'agent' | 'system' | 'coordinator';
-  action: string;
-  targetResource: string;
-  riskLevel: RiskLevel;
-  verified: boolean;
-  metadata: Record<string, unknown>;
+  sequence: number;
 }
 
-export interface ToolCapability {
+// ============================================================
+// Simulation
+// ============================================================
+
+export interface SimulationRun {
+  id: string;
+  tenantId: string;
+  scenarioId: string;
+  worldModelId: string;
+  status: SimulationStatus;
+  currentTick: number;
+  currentVirtualTimeMs: number;
+  comparativeResult?: {
+    riskScoreDelta: number;
+    criticalViolations: string[];
+    summary: string;
+    recommendation: 'PROCEED' | 'REVISE' | 'ABORT';
+  };
+  startedAt?: string;
+  completedAt?: string;
+  createdAt: string;
+}
+
+export interface SimulationScenario {
+  id: string;
+  tenantId: string;
+  worldModelId: string;
   name: string;
   description?: string;
-  enabled: boolean;
-  autoApprove: boolean;
-  riskLevel: RiskLevel;
-  provider?: string;
-  requiredSecrets?: string[];
-}
-
-export interface AgentCapabilities {
-  tools: ToolCapability[];
-  mcpServers: string[];
-  connectors: string[];
-  customCapabilities: string[];
-  filesystem: {
-    read: boolean;
-    write: boolean;
-    restrictedPaths: string[];
-    allowedPaths: string[];
-  };
-  network: {
-    allowedHosts: string[];
-    deniedHosts: string[];
-    allowHttp: boolean;
-    allowMcp: boolean;
-  };
-  terminal: {
-    allowedCommands: string[];
-    deniedCommands: string[];
-    requireSudo: boolean;
-    maxExecutionTimeMs: number;
-  };
-  subagents: {
-    canSpawn: boolean;
-    maxDepth: number;
-    maxChildren: number;
-  };
-}
-
-export interface AgentPolicyRule {
-  id: string;
-  name: string;
-  condition: string;
-  action: 'ALLOW' | 'BLOCK' | 'REQUIRE_APPROVAL';
-  riskLevel: RiskLevel;
-  enabled: boolean;
-}
-
-export interface AgentModelConfig {
-  provider: string;
-  modelId: string;
-  temperature: number;
-  maxTokens?: number;
-  topP?: number;
-}
-
-export interface AgentItem {
-  id: string;
-  tenantId?: string;
-  identity: {
-    name: string;
-    description: string;
-    role: string;
-    tags: string[];
-    avatarUrl?: string;
-  };
-  instructions: {
-    systemPrompt: string;
-    objectives: string[];
-    behavioralRules: string[];
-    customInstructions?: string;
-  };
-  capabilities: AgentCapabilities;
-  model: AgentModelConfig;
-  fallbackModels: AgentModelConfig[];
-  workspace: {
-    repositories: string[];
-    directories: string[];
-    environment: Record<string, string>;
-  };
-  permissions: {
-    files: string[];
-    shell: string[];
-    network: string[];
-    credentials: string[];
-    productionAccess: boolean;
-  };
-  verification: {
-    strategies: string[];
-    approvalRequirements: string[];
-    minConfidence: number;
-  };
-  resourceLimits: {
-    maxTokens?: number;
-    maxRuntimeSeconds: number;
-    maxCostUsd?: number;
-    maxConcurrency: number;
-  };
-  policies: AgentPolicyRule[];
-  healthStatus: AgentHealthStatus;
-  assignedTasksCount: number;
-  pastRunsCount: number;
-  totalTokensUsed: number;
-  totalCostUsd: number;
+  actions: Array<{
+    id: string;
+    targetEntityId: string;
+    actionType: string;
+    parameters: Record<string, unknown>;
+    scheduledVirtualTimeMs: number;
+  }>;
+  durationVirtualMs: number;
+  tickIntervalMs: number;
   createdAt: string;
-  updatedAt: string;
 }
 
-export interface TaskDependency {
-  taskId: string;
-  type: 'blocks' | 'requires_success' | 'parallel_with' | 'after';
-}
+// ============================================================
+// Workforce
+// ============================================================
 
-export interface TaskExecutionHistoryItem {
-  runId: string;
-  runNumber: number;
-  startedAt: string;
-  endedAt?: string;
-  status: RunStatus;
-  agentName: string;
-  durationSeconds: number;
-  costUsd: number;
-  resultSummary?: string;
-}
-
-export interface TaskItem {
-  id: string;
-  title: string;
-  description?: string;
-  objective: string;
-  instructions: string;
-  workspaceId: string;
-  workspaceName?: string;
-  missionId?: string;
-  missionTitle?: string;
-  assignedAgentId?: string;
-  assignedAgentName?: string;
-  assignedAgentRole?: string;
-  teamId?: string;
-  teamName?: string;
-  status: TaskStatus;
-  priority: TaskPriority;
-  progressPercent: number;
-  deadline?: string;
-  scheduledAt?: string;
-  dependencies: TaskDependency[];
-  successCriteria: string[];
-  expectedOutputs: string[];
-  tags: string[];
-  currentRunId?: string;
-  retryCount: number;
-  maxRetries: number;
-  executionHistory: TaskExecutionHistoryItem[];
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface TeamMember {
+export interface WorkforceNode {
   agentId: string;
-  agentName: string;
-  agentRole: string;
-  isCoordinator: boolean;
-  status: AgentHealthStatus;
-  currentTaskId?: string;
-  currentTaskTitle?: string;
-  activeRunId?: string;
-  tokensUsed: number;
-  costUsd: number;
-}
-
-export interface TeamItem {
-  id: string;
-  name: string;
-  mission: string;
-  description?: string;
-  mode: 'explicit' | 'autonomous';
-  coordinatorAgentId: string;
-  coordinatorAgentName?: string;
-  members: TeamMember[];
-  maxTeammates: number;
-  requireApprovalForTeammates: boolean;
-  budgetUsd?: number;
-  maxRuntimeSeconds?: number;
-  status: 'active' | 'idle' | 'paused' | 'completed';
-  activeTasksCount: number;
-  completedTasksCount: number;
-  totalCostUsd: number;
+  parentAgentId?: string;
+  teamId?: string;
+  missionId: string;
+  taskId?: string;
+  runId?: string;
+  status: 'ACTIVE' | 'TERMINATED' | 'PAUSED';
   createdAt: string;
   updatedAt: string;
 }
 
-export interface TopologyNode {
+// ============================================================
+// World Model
+// ============================================================
+
+export interface WorldEntity {
   id: string;
-  type: 'mission' | 'coordinator' | 'subagent' | 'task';
-  label: string;
-  subtitle?: string;
-  status: string;
-  health?: AgentHealthStatus;
-  tokensUsed?: number;
-  costUsd?: number;
-  activeRunId?: string;
-  agentId?: string;
+  tenantId: string;
+  worldModelId: string;
+  type: string;
+  name: string;
+  description?: string;
+  properties: Record<string, unknown>;
+  state: Record<string, unknown>;
+  version: number;
+}
+
+export interface WorldRelationship {
+  id: string;
+  tenantId: string;
+  worldModelId: string;
+  sourceEntityId: string;
+  targetEntityId: string;
+  type: string;
+  weight: number;
+}
+
+// ============================================================
+// Policy
+// ============================================================
+
+export interface SynapsePolicy {
+  id: string;
+  tenantId: string;
+  name: string;
+  description?: string;
+  scope: string;
+  rules: Array<{
+    id: string;
+    name: string;
+    target: string;
+    decision: 'ALLOW' | 'BLOCK' | 'REQUIRE_APPROVAL';
+    riskLevel: RiskLevel;
+  }>;
+  defaultDecision: 'ALLOW' | 'BLOCK' | 'REQUIRE_APPROVAL';
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ============================================================
+// Verification
+// ============================================================
+
+export interface VerificationRun {
+  id: string;
+  tenantId: string;
+  planId: string;
   taskId?: string;
-  x?: number;
-  y?: number;
-  metadata?: Record<string, unknown>;
+  overallVerdict: VerificationVerdict;
+  assertionResults: Array<{
+    assertionId: string;
+    assertionName: string;
+    type: string;
+    verdict: VerificationVerdict;
+    actualValue?: unknown;
+    errorMessage?: string;
+    executionTimeMs: number;
+  }>;
+  summary?: string;
+  startedAt: string;
+  completedAt?: string;
 }
 
-export interface TopologyEdge {
-  id: string;
-  source: string;
-  target: string;
-  label?: string;
-  status?: 'active' | 'idle' | 'completed' | 'blocked';
+// ============================================================
+// System
+// ============================================================
+
+export interface SystemHealthStatus {
+  status: 'healthy' | 'degraded' | 'error' | string;
+  services: Record<string, boolean>;
+  version: string;
+  database?: { ok: boolean };
+  engine?: { status: string; runtimeAddress?: string };
 }
-
-export interface TeamTopologyData {
-  teamId: string;
-  mission: string;
-  nodes: TopologyNode[];
-  edges: TopologyEdge[];
-}
-
-export * from './trust-governance.js';
-export type {
-  RunSession,
-  PlanStep,
-  StepState,
-  TechnicalDetails,
-  MessageAction,
-  QuestionOption,
-  ClarificationQuestion,
-  ToolApproval,
-  VerificationEvidence,
-  WorkspaceFile,
-  DiffLine,
-  DiffFile,
-  TestResultItem,
-  InfrastructureNode,
-  ActiveMetrics,
-  ActiveWorkItem,
-  AttentionItem,
-  RecentWorkItem,
-} from './run.js';
-
-export type SynapseTask = TaskItem;
-export type AgentDefinition = AgentItem;
-export type SynapseTeam = TeamItem;
-export type ToolApprovalRequest = ApprovalItem;
-export type SynapsePolicy = Record<string, unknown>;
-export type VerificationResult = VerificationRun;
-export type WorldEntity = Record<string, unknown>;
-export type WorkspaceDefinition = Record<string, unknown>;
-export type CapabilityDefinition = Record<string, unknown>;
-
 
 export interface UserProfile {
   id: string;
   name: string;
   email: string;
   role: string;
-  organization?: string;
   tenantId?: string;
   tenantName?: string;
-  avatarUrl?: string;
 }
 
+// ============================================================
+// Realtime Events
+// ============================================================
 
 export interface SynapseRealtimeEvent {
   eventId: string;
   eventType: string;
   timestamp: number;
+  isoTimestamp?: string;
   tenantId?: string;
   sessionId?: string;
   taskId?: string;
+  agentId?: string;
+  missionId?: string;
   payload: Record<string, unknown>;
+  source?: string;
+  sequence?: number;
 }
 
-export interface SystemHealthStatus {
-  status: 'healthy' | 'degraded' | 'error';
-  services: Record<string, boolean>;
-  version: string;
+// ============================================================
+// API Error
+// ============================================================
+
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    public code: string,
+    message: string,
+    public details?: unknown
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
 }
-
-export type SynapseSession = RunItem;
-export type SessionStatus = RunStatus;
-export type PolicyRiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'low' | 'medium' | 'high' | 'critical';
-

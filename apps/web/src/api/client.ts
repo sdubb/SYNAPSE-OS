@@ -1,52 +1,45 @@
 /**
- * Production-grade typed API client for Synapse OS backend
- * Fully wired to live REST endpoints with ZERO mock data fallbacks.
+ * SYNAPSE OS — Typed API Client
+ * Zero mock data. Zero fallbacks. Zero fabricated responses.
+ * Every response comes from the real SYNAPSE backend.
  */
-import {
+
+import type {
   SynapseSession,
-  AgentDefinition,
   SynapseTask,
-  SynapseTeam,
+  AgentDefinition,
   ToolApprovalRequest,
   SynapsePolicy,
-  VerificationResult,
+  VerificationRun,
   AuditRecord,
   WorldEntity,
+  WorldRelationship,
+  SimulationRun,
   SystemHealthStatus,
+  ApiError as ApiErrorType,
 } from '@/types';
 
-export class ApiError extends Error {
-  constructor(
-    public status: number,
-    public code: string,
-    message: string,
-    public details?: unknown
-  ) {
-    super(message);
-    this.name = 'ApiError';
-  }
-}
+export { ApiError } from '@/types';
 
 class SynapseApiClient {
-  private baseUrl: string = '/api/v1';
+  private baseUrl = '/api/v1';
   private token: string | null = null;
-  private tenantId: string = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+  private tenantId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
 
   constructor() {
     if (typeof window !== 'undefined') {
-      this.token = localStorage.getItem('synapse_auth_token') || 'dev_token';
-      this.tenantId = localStorage.getItem('synapse_tenant_id') || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+      this.token = localStorage.getItem('synapse_auth_token');
+      this.tenantId = localStorage.getItem('synapse_tenant_id') || this.tenantId;
     }
   }
+
+  // ── Auth ──────────────────────────────────────────────
 
   public setToken(token: string | null) {
     this.token = token;
     if (typeof window !== 'undefined') {
-      if (token) {
-        localStorage.setItem('synapse_auth_token', token);
-      } else {
-        localStorage.removeItem('synapse_auth_token');
-      }
+      if (token) localStorage.setItem('synapse_auth_token', token);
+      else localStorage.removeItem('synapse_auth_token');
     }
   }
 
@@ -57,74 +50,9 @@ class SynapseApiClient {
     }
   }
 
-  public getToken(): string | null {
-    return this.token;
-  }
+  public getToken(): string | null { return this.token; }
+  public getTenantId(): string { return this.tenantId; }
 
-  public getTenantId(): string {
-    return this.tenantId;
-  }
-
-  public async request<T>(
-    endpoint: string,
-    options: RequestInit = {}
-  ): Promise<T> {
-    const isAbsolute = endpoint.startsWith('http://') || endpoint.startsWith('https://');
-    const isHealthOrRaw = endpoint.startsWith('/health') || endpoint.startsWith('/metrics');
-    const url = isAbsolute
-      ? endpoint
-      : isHealthOrRaw
-      ? endpoint
-      : `${this.baseUrl}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'X-Tenant-Id': this.tenantId,
-      ...(options.headers as Record<string, string>),
-    };
-
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
-    }
-
-    try {
-      const response = await fetch(url, {
-        ...options,
-        headers,
-      });
-
-      if (!response.ok) {
-        let errorBody: { error?: string; message?: string; details?: unknown } = {};
-        try {
-          errorBody = await response.json();
-        } catch {
-          errorBody = { message: response.statusText };
-        }
-
-        throw new ApiError(
-          response.status,
-          errorBody.error || 'API_ERROR',
-          errorBody.message || `Request failed with status ${response.status}`,
-          errorBody.details
-        );
-      }
-
-      if (response.status === 204) {
-        return {} as T;
-      }
-
-      const contentType = response.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        return (await response.json()) as T;
-      }
-      return (await response.text()) as unknown as T;
-    } catch (err) {
-      if (err instanceof ApiError) throw err;
-      throw new ApiError(500, 'NETWORK_ERROR', (err as Error).message || 'Network request failed');
-    }
-  }
-
-  // --- Auth ---
   public async login(apiKeyOrUser: string = 'usr_admin_01') {
     const res = await this.request<{
       token: string;
@@ -140,223 +68,178 @@ class SynapseApiClient {
     return res;
   }
 
-  // --- Health & Metrics ---
-  public async getHealth(): Promise<SystemHealthStatus> {
-    return this.request<SystemHealthStatus>('/health');
+  // ── HTTP Client ───────────────────────────────────────
+
+  public async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    const isAbsolute = endpoint.startsWith('http://') || endpoint.startsWith('https://');
+    const isPublic = endpoint.startsWith('/health') || endpoint.startsWith('/metrics');
+    const url = isAbsolute ? endpoint
+      : isPublic ? endpoint
+      : `${this.baseUrl}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-Tenant-Id': this.tenantId,
+      ...(options.headers as Record<string, string>),
+    };
+
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+
+    const response = await fetch(url, { ...options, headers });
+
+    if (!response.ok) {
+      let body: { error?: string; message?: string; details?: unknown } = {};
+      try { body = await response.json(); } catch { body = { message: response.statusText }; }
+      throw new (await import('@/types')).ApiError(
+        response.status,
+        body.error || 'API_ERROR',
+        body.message || `Request failed with status ${response.status}`,
+        body.details
+      );
+    }
+
+    if (response.status === 204) return {} as T;
+    const ct = response.headers.get('content-type');
+    if (ct?.includes('application/json')) return (await response.json()) as T;
+    return (await response.text()) as unknown as T;
   }
 
-  public async getCostSummary(tenantId?: string) {
-    const tid = tenantId || this.tenantId;
-    return this.request<Record<string, unknown>>(`/health/cost?tenantId=${tid}`);
-  }
+  // ── Health ────────────────────────────────────────────
 
-  // --- Runs & Sessions ---
-  public async getSessions(params?: { agentId?: string; status?: string }): Promise<SynapseSession[]> {
-    const query = new URLSearchParams(params as Record<string, string>).toString();
-    return this.request<SynapseSession[]>(`/sessions${query ? `?${query}` : ''}`).catch(() => []);
-  }
+  public getHealth = () => this.request<SystemHealthStatus>('/health');
 
-  public async getSession(id: string): Promise<SynapseSession> {
-    return this.request<SynapseSession>(`/sessions/${id}`);
-  }
+  // ── Sessions ──────────────────────────────────────────
 
-  public async createSession(data: Partial<SynapseSession>): Promise<SynapseSession> {
-    return this.request<SynapseSession>('/sessions', {
+  public getSessions = (params?: Record<string, string>) => {
+    const q = params ? `?${new URLSearchParams(params).toString()}` : '';
+    return this.request<SynapseSession[]>(`/sessions${q}`);
+  };
+
+  public getSession = (id: string) =>
+    this.request<SynapseSession>(`/sessions/${id}`);
+
+  public createSession = (data: Partial<SynapseSession>) =>
+    this.request<SynapseSession>('/sessions', {
+      method: 'POST', body: JSON.stringify(data),
+    });
+
+  public getSessionMessages = (id: string) =>
+    this.request<unknown[]>(`/sessions/${id}/messages`);
+
+  public sendInstruction = (id: string, instruction: string, provider?: string, modelId?: string) =>
+    this.request<{ success: boolean; messages: unknown[] }>(`/sessions/${id}/interventions`, {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify({ instruction, provider, modelId }),
     });
-  }
 
-  public async getRuns(): Promise<any[]> {
-    return this.getSessions();
-  }
+  public pauseSession = (id: string) =>
+    this.request<unknown>(`/sessions/${id}/pause`, { method: 'POST' });
 
-  public async getRunById(id: string): Promise<any> {
-    return this.getRunSession(id);
-  }
-
-  public async createRun(goal: string, mode: string = 'task'): Promise<any> {
-    const session = await this.createSession({
-      agentId: 'agt-default',
-      workspaceId: 'ws-default',
-      title: goal.slice(0, 80),
-      status: 'active',
-      tags: [mode],
+  public resumeSession = (id: string, prompt?: string) =>
+    this.request<unknown>(`/sessions/${id}/resume`, {
+      method: 'POST', body: JSON.stringify({ prompt }),
     });
-    return session;
-  }
 
-  public async startRun(params: { agentId: string; taskId?: string; initialPrompt?: string; title?: string }): Promise<any> {
-    return this.createSession({
-      agentId: params.agentId,
-      workspaceId: 'ws-default',
-      title: params.title || params.initialPrompt || 'New Run',
-      taskId: params.taskId,
-      status: 'active',
-      tags: [],
+  public stopSession = (id: string) =>
+    this.request<unknown>(`/sessions/${id}/stop`, { method: 'POST' });
+
+  public getSessionTimeline = (id: string) =>
+    this.request<unknown[]>(`/sessions/${id}/timeline`);
+
+  public getSessionFiles = (id: string) =>
+    this.request<unknown[]>(`/sessions/${id}/files`);
+
+  public getSessionDiff = (id: string) =>
+    this.request<unknown[]>(`/sessions/${id}/diff`);
+
+  public getSessionUsage = (id: string) =>
+    this.request<unknown>(`/sessions/${id}/usage`);
+
+  // ── Tasks ─────────────────────────────────────────────
+
+  public getTasks = () =>
+    this.request<SynapseTask[]>('/tasks');
+
+  public getTaskById = (id: string) =>
+    this.request<SynapseTask>(`/tasks/${id}`);
+
+  public createTask = (data: Partial<SynapseTask>) =>
+    this.request<SynapseTask>('/tasks', {
+      method: 'POST', body: JSON.stringify(data),
     });
-  }
 
-  // --- Tasks ---
-  public async getTasks(): Promise<any[]> {
-    return this.request<any[]>('/tasks').catch(() => []);
-  }
+  // ── Agents ────────────────────────────────────────────
 
-  public async getTaskById(id: string): Promise<any | null> {
-    return this.request<any>(`/tasks/${id}`).catch(() => null);
-  }
+  public getAgents = () =>
+    this.request<AgentDefinition[]>('/agents');
 
-  public async createTask(data: Partial<SynapseTask>): Promise<SynapseTask> {
-    return this.request<SynapseTask>('/tasks', {
-      method: 'POST',
-      body: JSON.stringify(data),
+  public getAgentById = (id: string) =>
+    this.request<AgentDefinition>(`/agents/${id}`);
+
+  public createAgent = (data: Partial<AgentDefinition>) =>
+    this.request<AgentDefinition>('/agents', {
+      method: 'POST', body: JSON.stringify(data),
     });
-  }
 
-  public async updateTaskStatus(id: string, status: string): Promise<any | null> {
-    return this.request<any>(`/tasks/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status }),
-    }).catch(() => null);
-  }
+  // ── Approvals ─────────────────────────────────────────
 
-  // --- Agents ---
-  public async getAgents(): Promise<any[]> {
-    return this.request<any[]>('/agents').catch(() => []);
-  }
+  public getApprovals = () =>
+    this.request<ToolApprovalRequest[]>('/approvals');
 
-  public async getAgentById(id: string): Promise<any | null> {
-    return this.request<any>(`/agents/${id}`).catch(() => null);
-  }
-
-  public async createAgent(data: Partial<AgentDefinition>): Promise<any> {
-    return this.request<any>('/agents', {
-      method: 'POST',
-      body: JSON.stringify(data),
+  public resolveApproval = (id: string, decision: 'APPROVED' | 'REJECTED', reason?: string) =>
+    this.request<unknown>(`/approvals/${id}/resolve`, {
+      method: 'POST', body: JSON.stringify({ decision, reason }),
     });
-  }
 
-  // --- Teams ---
-  public async getTeams(): Promise<any[]> {
-    return this.request<any[]>('/teams').catch(() => []);
-  }
+  // ── Policies ──────────────────────────────────────────
 
-  public async getTeamById(id: string): Promise<any | null> {
-    return this.request<any>(`/teams/${id}`).catch(() => null);
-  }
+  public getPolicies = () =>
+    this.request<SynapsePolicy[]>('/policies');
 
-  public async createTeam(data: Partial<SynapseTeam>): Promise<any> {
-    return this.request<any>('/teams', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
+  // ── Verification ──────────────────────────────────────
 
-  public async getTeamTopology(teamId: string): Promise<any> {
-    return this.request<any>(`/teams/${teamId}/topology`).catch(() => ({
-      teamId,
-      nodes: [],
-      edges: [],
-    }));
-  }
+  public getVerifications = () =>
+    this.request<VerificationRun[]>('/verification');
 
-  // --- Approvals ---
-  public async getApprovals(): Promise<any[]> {
-    return this.request<any[]>('/approvals').catch(() => []);
-  }
+  public getVerification = (id: string) =>
+    this.request<VerificationRun>(`/verification/${id}`);
 
-  public async createApproval(data: Partial<ToolApprovalRequest>): Promise<ToolApprovalRequest> {
-    return this.request<ToolApprovalRequest>('/approvals', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
+  // ── Audit ─────────────────────────────────────────────
 
-  public async resolveApproval(id: string, decision: 'APPROVED' | 'REJECTED', reason?: string): Promise<any | null> {
-    return this.request<any>(`/approvals/${id}/resolve`, {
-      method: 'POST',
-      body: JSON.stringify({ decision, reason }),
-    }).catch(() => null);
-  }
+  public getAuditLogs = (params?: { limit?: number; offset?: number; eventType?: string }) => {
+    const q = params ? `?${new URLSearchParams(params as Record<string, string>).toString()}` : '';
+    return this.request<{ records: AuditRecord[]; total: number; hasMore: boolean }>(`/audit${q}`);
+  };
 
-  // --- Policies ---
-  public async getPolicies(): Promise<any[]> {
-    return this.request<any[]>('/policies').catch(() => []);
-  }
+  // ── World Model ───────────────────────────────────────
 
-  public async createPolicy(data: Partial<SynapsePolicy>): Promise<any> {
-    return this.request<any>('/policies', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
+  public getWorldEntities = () =>
+    this.request<WorldEntity[]>('/world/entities');
 
-  // --- Verification ---
-  public async getVerifications(): Promise<any[]> {
-    return this.request<any[]>('/verification').catch(() => []);
-  }
+  public getWorldRelationships = () =>
+    this.request<WorldRelationship[]>('/world/relationships');
 
-  public async getVerification(id: string): Promise<any> {
-    return this.request<any>(`/verification/${id}`);
-  }
+  public getWorldTopology = () =>
+    this.request<{ entities: WorldEntity[]; relationships: WorldRelationship[] }>('/world/topology');
 
-  public async getRunVerification(runId: string): Promise<any> {
-    return this.request<any>(`/verification/runs/${runId}`).catch(() => null);
-  }
+  // ── Simulations ───────────────────────────────────────
 
-  public async createVerification(data: Partial<VerificationResult>): Promise<any> {
-    return this.request<any>('/verification', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
+  public getSimulations = () =>
+    this.request<SimulationRun[]>('/simulations');
 
-  // --- World Model ---
-  public async getWorldEntities(): Promise<WorldEntity[]> {
-    return this.request<WorldEntity[]>('/world/entities').catch(() => []);
-  }
+  // ── Security ──────────────────────────────────────────
 
-  public async createWorldEntity(data: Partial<WorldEntity>): Promise<WorldEntity> {
-    return this.request<WorldEntity>('/world/entities', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
+  public triggerKillSwitch = (reason?: string) =>
+    this.request<{ triggered: boolean; tenantId: string; reason: string; executedAt: string }>(
+      '/security/kill-switch', {
+        method: 'POST', body: JSON.stringify({ reason }),
+      }
+    );
 
-  public async getWorldRelationships(): Promise<any[]> {
-    return this.request<any[]>('/world/relationships').catch(() => []);
-  }
+  // ── Composite Helpers (real data only) ────────────────
 
-  // --- Audit ---
-  public async getAuditLogs(params?: { limit?: number; offset?: number; eventType?: string }): Promise<{
-    records: AuditRecord[];
-    total: number;
-    hasMore: boolean;
-  }> {
-    const query = new URLSearchParams(params as Record<string, string>).toString();
-    return this.request<{ records: AuditRecord[]; total: number; hasMore: boolean }>(
-      `/audit${query ? `?${query}` : ''}`
-    ).catch(() => ({ records: [], total: 0, hasMore: false }));
-  }
-
-  public async getRunAuditTrail(runId: string): Promise<any[]> {
-    return this.request<any[]>(`/audit?sessionId=${runId}`).then((r: any) => r.records || []).catch(() => []);
-  }
-
-  // --- Security & Emergency Kill-switch ---
-  public async triggerEmergencyKillSwitch(reason?: string) {
-    return this.request<{
-      triggered: boolean;
-      tenantId: string;
-      reason: string;
-      executedAt: string;
-    }>('/security/kill-switch', {
-      method: 'POST',
-      body: JSON.stringify({ reason }),
-    });
-  }
-
-  // --- Dynamic Live Metrics & Feeds (Computed dynamically from REAL backend state) ---
   public async getActiveMetrics() {
     const [sessions, tasks, approvals, verifications] = await Promise.all([
       this.getSessions().catch(() => []),
@@ -366,215 +249,16 @@ class SynapseApiClient {
     ]);
 
     const running = sessions.filter(
-      (s: any) => s.status === 'RUNNING' || s.status === 'EXECUTING' || s.status === 'running'
+      (s) => s.status === 'active' || s.status === 'awaiting_approval'
     ).length;
     const waiting = approvals.filter(
-      (a: any) => a.status === 'pending' || a.status === 'PENDING' || a.status === 'AWAITING_APPROVAL'
+      (a) => a.status === 'pending' || a.status === 'PENDING'
     ).length;
     const verifying = verifications.filter(
-      (v: any) => v.status === 'VERIFYING' || v.status === 'running' || v.verdict === 'REVIEW'
+      (v) => v.overallVerdict === 'INCONCLUSIVE'
     ).length;
-    const todayTotal = sessions.length;
 
-    return { running, waiting, verifying, todayTotal };
-  }
-
-  public async getActiveWork() {
-    const sessions = await this.getSessions().catch(() => []);
-    return sessions
-      .filter((s: any) => ['RUNNING', 'EXECUTING', 'AWAITING_APPROVAL', 'VERIFYING', 'running'].includes(s.status))
-      .map((s: any) => ({
-        id: s.id,
-        title: s.title || (s.metadata && s.metadata.taskTitle) || `Run #${s.id.slice(0, 8)}`,
-        agentName: s.agentName || s.agentId || 'Agent',
-        status: s.status,
-        duration: s.durationSeconds ? `${Math.floor(s.durationSeconds / 60)}m ${s.durationSeconds % 60}s` : '0m',
-        currentAction: s.activeStep || s.currentAction || 'Processing instructions...',
-      }));
-  }
-
-  public async getAttentionItems() {
-    const [approvals, verifications] = await Promise.all([
-      this.getApprovals().catch(() => []),
-      this.getVerifications().catch(() => []),
-    ]);
-
-    const items: any[] = [];
-    for (const a of approvals.filter((x: any) => x.status === 'pending' || x.status === 'PENDING')) {
-      items.push({
-        id: a.id,
-        runId: a.runId || a.sessionId || '',
-        type: 'approval',
-        title: `Approval Required: ${a.toolName || 'Tool Execution'}`,
-        description: a.reason || 'High-risk action requires human authorization.',
-        severity: (a.riskLevel || '').toUpperCase() === 'CRITICAL' ? 'critical' : 'warning',
-        timestamp: a.createdAt ? new Date(a.createdAt).toLocaleTimeString() : 'Just now',
-      });
-    }
-
-    for (const v of verifications.filter((x: any) => x.verdict === 'FAIL')) {
-      items.push({
-        id: v.id,
-        runId: v.runId || '',
-        type: 'verification_failure',
-        title: `Verification Failed: ${v.taskTitle || v.id}`,
-        description: 'Multi-vector verification failed confidence check.',
-        severity: 'critical',
-        timestamp: v.completedAt ? new Date(v.completedAt).toLocaleTimeString() : 'Recent',
-      });
-    }
-
-    return items;
-  }
-
-  public async getRecentWork() {
-    const sessions = await this.getSessions().catch(() => []);
-    return sessions
-      .filter((s: any) => ['COMPLETED', 'FAILED', 'CANCELLED', 'completed', 'failed'].includes(s.status))
-      .slice(0, 10)
-      .map((s: any) => ({
-        id: s.id,
-        taskTitle: s.title || (s.metadata && s.metadata.taskTitle) || `Task #${s.id.slice(0, 8)}`,
-        agentName: s.agentName || s.agentId || 'Agent',
-        result: s.status === 'COMPLETED' || s.status === 'completed' ? 'Verified' : 'Failed',
-        resultStatus: s.status === 'COMPLETED' || s.status === 'completed' ? 'success' : 'danger',
-        completedAt: s.updatedAt ? new Date(s.updatedAt).toLocaleTimeString() : 'Recently',
-        duration: s.durationSeconds ? `${Math.floor(s.durationSeconds / 60)}m` : '1m',
-      }));
-  }
-
-  public async getRunSession(runId: string) {
-    const defaultDetails = {
-      filesRead: [],
-      filesModified: [],
-      commands: [],
-      tests: { passed: 0, failed: 0, total: 0 },
-      clineSessionId: `cline_${runId}`,
-      tools: [],
-      tokenUsage: { promptTokens: 0, completionTokens: 0, totalCostUsd: 0 },
-    };
-
-    try {
-      const data = await this.getSession(runId);
-      if (data) {
-        let rawMessages = (data as any).messages || (data as any).metadata?.messages;
-        if (!rawMessages || rawMessages.length === 0) {
-          rawMessages = await this.getRunConversation(runId).catch(() => []);
-        }
-        return {
-          id: data.id,
-          taskId: (data as any).taskId || `tsk_${data.id.slice(0, 6)}`,
-          agentId: data.agentId || 'agt-default',
-          agentName: (data as any).agentName || data.agentId || 'Autonomous Agent',
-          agentAvatar: (data as any).agentAvatar,
-          taskTitle: (data as any).taskTitle || (data as any).title || `Run #${data.id.slice(0, 8)}`,
-          taskObjective: (data as any).taskObjective || (data as any).title || 'Execute objective',
-          environment: 'Development' as const,
-          status: (data.status as any) || 'RUNNING',
-          startedAt: data.startedAt || new Date().toISOString(),
-          endedAt: data.endedAt,
-          currentPhase: 'Understand' as const,
-          activeWorkspaceTab: 'files' as const,
-          activePlan: (data as any).activePlan || [],
-          messages: rawMessages || [],
-          pendingApprovals: (data as any).pendingApprovals || [],
-          technicalDetails: (data as any).technicalDetails || defaultDetails,
-          workspaceFiles: (data as any).workspaceFiles || [],
-          diffFiles: (data as any).diffFiles || [],
-          testResults: (data as any).testResults || [],
-          infrastructureNodes: (data as any).infrastructureNodes || [],
-          terminalLogs: (data as any).terminalLogs || [],
-          previewUrl: (data as any).previewUrl,
-        };
-      }
-    } catch {}
-
-    return {
-      id: runId,
-      taskId: `tsk_${runId.slice(0, 6)}`,
-      agentId: 'agt-default',
-      agentName: 'Autonomous Agent',
-      taskTitle: `Run #${runId.slice(0, 8)}`,
-      taskObjective: 'Execute objective',
-      environment: 'Development' as const,
-      status: 'RUNNING' as any,
-      startedAt: new Date().toISOString(),
-      currentPhase: 'Understand' as const,
-      activeWorkspaceTab: 'files' as const,
-      activePlan: [],
-      messages: [],
-      pendingApprovals: [],
-      technicalDetails: defaultDetails,
-      workspaceFiles: [],
-      diffFiles: [],
-      testResults: [],
-      infrastructureNodes: [],
-      terminalLogs: [],
-    };
-  }
-
-  public async getRunTimeline(runId: string): Promise<any[]> {
-    return this.request<any[]>(`/sessions/${runId}/timeline`).catch(() => []);
-  }
-
-  public async getRunConversation(runId: string): Promise<any[]> {
-    return this.request<any[]>(`/sessions/${runId}/messages`).catch(() => []);
-  }
-
-  public async getRunTools(runId: string): Promise<any[]> {
-    return this.request<any[]>(`/sessions/${runId}/tools`).catch(() => []);
-  }
-
-  public async getRunFiles(runId: string): Promise<any[]> {
-    return this.request<any[]>(`/sessions/${runId}/files`).catch(() => []);
-  }
-
-  public async getRunChanges(runId: string): Promise<any[]> {
-    return this.request<any[]>(`/sessions/${runId}/diff`).catch(() => []);
-  }
-
-  public async getRunApprovals(runId: string): Promise<any[]> {
-    return this.request<any[]>(`/sessions/${runId}/approvals`).catch(() => []);
-  }
-
-  public async getRunUsage(runId: string): Promise<any | null> {
-    return this.request<any>(`/sessions/${runId}/usage`).catch(() => null);
-  }
-
-  public async haltRun(runId: string) {
-    return this.request(`/sessions/${runId}/stop`, { method: 'POST' });
-  }
-
-  public async sendInstruction(runId: string, instruction: string, attachments?: any, provider?: string, modelId?: string) {
-    return this.request(`/sessions/${runId}/interventions`, {
-      method: 'POST',
-      body: JSON.stringify({
-        type: 'INSTRUCTION',
-        instruction,
-        attachmentsCount: Array.isArray(attachments) ? attachments.length : 0,
-        provider,
-        modelId,
-      }),
-    });
-  }
-
-  public async pauseRun(runId: string) {
-    return this.request(`/sessions/${runId}/pause`, { method: 'POST' });
-  }
-
-  public async resumeRun(runId: string) {
-    return this.request(`/sessions/${runId}/resume`, { method: 'POST' });
-  }
-
-  public async stopRun(runId: string) {
-    return this.request(`/sessions/${runId}/stop`, { method: 'POST' });
-  }
-
-  public async answerQuestion(runId: string, questionId: string, answer: string) {
-    return this.request(`/sessions/${runId}/questions/${questionId}/answer`, {
-      method: 'POST',
-      body: JSON.stringify({ answer }),
-    });
+    return { running, waiting, verifying, total: sessions.length };
   }
 }
 

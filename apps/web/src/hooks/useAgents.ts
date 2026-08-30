@@ -1,30 +1,19 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/api/client';
-import { AgentDefinition } from '@/types';
+import { useQuery } from '@tanstack/react-query';
+import { apiClient } from '@/api/client';
 
 export function useAgents() {
-  const queryClient = useQueryClient();
-
-  const agentsQuery = useQuery({
+  return useQuery({
     queryKey: ['agents'],
-    queryFn: () => api.getAgents(),
-    refetchInterval: 10000,
+    queryFn: () => apiClient.getAgents(),
+    staleTime: 10000,
   });
+}
 
-  const createAgentMutation = useMutation({
-    mutationFn: (data: Partial<AgentDefinition>) => api.createAgent(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['agents'] });
-    },
+export function useAgent(id: string | undefined) {
+  return useQuery({
+    queryKey: ['agents', id],
+    queryFn: () => apiClient.getAgentById(id!),
+    enabled: !!id,
+    staleTime: 10000,
   });
-
-  return {
-    agents: agentsQuery.data || [],
-    isLoading: agentsQuery.isLoading,
-    isError: agentsQuery.isError,
-    error: agentsQuery.error,
-    refetch: agentsQuery.refetch,
-    createAgent: createAgentMutation.mutateAsync,
-    isCreating: createAgentMutation.isPending,
-  };
 }

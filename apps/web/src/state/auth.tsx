@@ -21,24 +21,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Initialize session
   useEffect(() => {
     const initAuth = async () => {
       try {
         const savedToken = api.getToken();
         if (savedToken) {
-          // Set user profile
           setUser({
             id: 'usr_admin_01',
-            name: 'Alex Rivera',
-            email: 'alex@synapse.os',
+            name: 'Operator',
+            email: 'admin@synapse.os',
             role: 'admin',
             tenantId: api.getTenantId(),
-            tenantName: 'Production Org',
-            avatarUrl: undefined,
+            tenantName: 'Default Tenant',
           });
         } else {
-          // Auto-authenticate default development operator for seamless local DX
           await login('usr_admin_01');
         }
       } catch (err) {
@@ -47,7 +43,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsLoading(false);
       }
     };
-
     initAuth();
   }, []);
 
@@ -59,11 +54,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setTenantId(res.tenantId);
       setUser({
         id: res.userId,
-        name: 'Alex Rivera',
-        email: 'alex@synapse.os',
+        name: 'Operator',
+        email: 'admin@synapse.os',
         role: 'admin',
         tenantId: res.tenantId,
-        tenantName: 'Production Org',
+        tenantName: 'Default Tenant',
       });
     } finally {
       setIsLoading(false);
@@ -85,18 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   return (
-    <AuthContext.Provider
-      value={{
-        isAuthenticated: Boolean(token),
-        token,
-        tenantId,
-        user,
-        isLoading,
-        login,
-        logout,
-        switchTenant,
-      }}
-    >
+    <AuthContext.Provider value={{ isAuthenticated: Boolean(token), token, tenantId, user, isLoading, login, logout, switchTenant }}>
       {children}
     </AuthContext.Provider>
   );
@@ -104,8 +88,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (!context) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 }

@@ -1,30 +1,19 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/api/client';
-import { SynapseTask } from '@/types';
+import { useQuery } from '@tanstack/react-query';
+import { apiClient } from '@/api/client';
 
 export function useTasks() {
-  const queryClient = useQueryClient();
-
-  const tasksQuery = useQuery({
+  return useQuery({
     queryKey: ['tasks'],
-    queryFn: () => api.getTasks(),
-    refetchInterval: 5000,
+    queryFn: () => apiClient.getTasks(),
+    staleTime: 5000,
   });
+}
 
-  const createTaskMutation = useMutation({
-    mutationFn: (data: Partial<SynapseTask>) => api.createTask(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-    },
+export function useTask(id: string | undefined) {
+  return useQuery({
+    queryKey: ['tasks', id],
+    queryFn: () => apiClient.getTaskById(id!),
+    enabled: !!id,
+    staleTime: 5000,
   });
-
-  return {
-    tasks: tasksQuery.data || [],
-    isLoading: tasksQuery.isLoading,
-    isError: tasksQuery.isError,
-    error: tasksQuery.error,
-    refetch: tasksQuery.refetch,
-    createTask: createTaskMutation.mutateAsync,
-    isCreating: createTaskMutation.isPending,
-  };
 }
