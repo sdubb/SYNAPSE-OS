@@ -56,94 +56,107 @@ export function createSubmitPlanTool(engine: ExecutionGraphEngine): any {
 
 import { SimulationEngine } from "@synapse/simulation-engine";
 import { DigitalTwin } from "@synapse/twin-engine";
-import { WorldModel, Entity } from "@synapse/world-engine";
 
-export function createSimulateBranchTool(): any {
+export function createSimulateBranchTool(simEngine: SimulationEngine, getTwinFn: (env: string) => DigitalTwin | null): any {
   return {
     name: "simulate_execution_branch",
     description: "Request Synapse Simulation Engine to evaluate the consequences of a proposed branch or high-impact action before execution.",
     inputSchema: {
       type: "object",
       properties: {
-        scenario: { type: "string" },
         targetNodeId: { type: "string" },
-        proposedAction: { type: "string" }
+        targetEntityId: { type: "string" },
+        mutation: { 
+          type: "object",
+          properties: {
+             property: { type: "string" },
+             value: {} // accept any type
+          }
+        },
+        actionType: { type: "string" },
+        environment: { type: "string" },
+        expectedChange: { type: "string" },
+        riskContext: { type: "string" },
+        iterations: { type: "number", minimum: 10, maximum: 1000 }
       },
-      required: ["scenario"]
+      required: ["targetEntityId", "environment"]
     },
     async execute(input: any, _context: any) {
-      // 1. Create a dummy WorldModel representing the target system
-      const model = new WorldModel(
-        { id: "world-1", name: "Production", tenantId: "tenant-1", version: 1 },
-        {
-          entities: [
-            new Entity({ id: "database", type: "Database", name: "Main DB", state: { available: true, schema_healthy: true }, metadata: {} }),
-            new Entity({ id: "api", type: "Service", name: "Main API", state: { available: true }, metadata: {} })
-          ],
-          relationships: [],
-          constraints: [],
-          behaviors: []
-        }
-      );
-      
-      const twin = new DigitalTwin({
-        id: "twin-1",
-        name: "Prod Twin",
-        targetSystemId: "prod",
-        primarySourceSystem: "sim",
-        tenantId: "tenant-1",
-        baselineModel: model
-      });
+      const twin = getTwinFn(input.environment);
+      if (!twin) {
+        return JSON.stringify({ error: "SIMULATION_UNAVAILABLE", reason: `No appropriate twin/world model exists for environment: ${input.environment}` });
+      }
 
-      const simEngine = new SimulationEngine();
-      
-      // 2. Build scenario dynamically from input
       const builder = simEngine.createScenarioBuilder()
         .withId(`scen_${Date.now()}`)
-        .withName(input.scenario)
+        .withName(`Simulate ${input.actionType} on ${input.targetEntityId}`)
         .withDuration(1000, 100);
         
-      if (input.proposedAction?.includes("modify_code") || input.scenario?.includes("database schema is wrong")) {
-        // High risk scenario: inject a mutation that causes failure
+      if (input.mutation?.property && input.mutation?.value !== undefined) {
         builder.mutateEntity(
-          "database",
-          "errorRate",
-          15.0, // Exceeds the max 5.0 error rate
+          input.targetEntityId,
+          input.mutation.property,
+          input.mutation.value,
           100,
-          "Database error rate spikes due to schema mismatch"
+          input.expectedChange || "Applied mutation for simulation"
         );
       }
       
       const scenario = builder.build();
 
-      // 3. Run Monte Carlo simulation sweep (50 iterations)
-      const sweepResult = await simEngine.runMonteCarloSweep(twin, scenario, 10);
-      
-      // Calculate derived metrics based on sweep results
-      const successRate = sweepResult.successRatePercent;
-      const failureRate = sweepResult.failureRatePercent;
-      const avgViolations = sweepResult.metricDistributions["violationsCount"]?.mean ?? 0;
+      const iterations = input.iterations && input.iterations >= 10 ? input.iterations : 10;
 
-      // 4. Return structured simulation outcome
+      // Determine strategy based on risk
+      let method = "DETERMINISTIC";
+      let sweepResult: any;
+      let durationMs = 0;
+      let failureRate = 0;
+      let avgViolations = 0;
+      
+      if (input.riskContext === "HIGH" || input.riskContext === "CRITICAL" || iterations > 1) {
+          method = "MONTE_CARLO";
+          sweepResult = await simEngine.runMonteCarloSweep(twin, scenario, iterations);
+          failureRate = sweepResult.failureRatePercent;
+          avgViolations = sweepResult.metricDistributions["violationsCount"]?.mean ?? 0;
+          durationMs = sweepResult.durationMs;
+      } else {
+          sweepResult = await simEngine.runScenario(twin, scenario);
+          failureRate = sweepResult.outcome.constraintViolationsCount > 0 ? 100 : 0;
+          avgViolations = sweepResult.outcome.constraintViolationsCount;
+          durationMs = sweepResult.durationRealMs;
+      }
+
+      // Calculate blast radius from relationships
+      let blastRadius = 0;
+      let affectedEntities = 0;
+      if (sweepResult.comparison && sweepResult.comparison.executiveSummary) {
+          blastRadius = sweepResult.comparison.executiveSummary.totalImpactedEntitiesCount;
+          affectedEntities = blastRadius;
+      } else if (sweepResult.iterations && sweepResult.iterations.length > 0) {
+          blastRadius = sweepResult.metricDistributions["totalImpactedEntities"]?.mean ?? avgViolations;
+          affectedEntities = Math.round(blastRadius);
+      } else {
+          affectedEntities = avgViolations > 0 ? 2 : 0; // fallback if metrics are missing
+          blastRadius = affectedEntities;
+      }
+
       return JSON.stringify({
-        simulationRunId: sweepResult.sweepId,
+        simulationRunId: sweepResult.sweepId || sweepResult.runId,
         targetNodeId: input.targetNodeId,
-        scenario: input.scenario,
         outcomes: {
-          successRate: `${successRate}%`,
+          successRate: `${100 - failureRate}%`,
           failureRate: `${failureRate}%`
         },
-        riskScore: avgViolations > 0 ? 0.85 : 0.05,
-        blastRadius: avgViolations > 0 ? 17 : 0,
+        riskScore: avgViolations > 0 ? 0.8 : 0.1,
+        blastRadius,
+        affectedEntities,
         constraintViolations: Math.round(avgViolations),
         rollbackAvailable: true,
-        recommendedBranch: failureRate > 5 ? "staging migration" : "proceed",
-        confidence: 0.95,
-        duration: sweepResult.durationMs,
-        metadata: {
-          action: input.proposedAction,
-          mode: "MonteCarlo"
-        }
+        rollbackStrategy: "Standard twin restore available",
+        confidence: iterations >= 50 ? 0.95 : 0.80,
+        recommendedBranch: failureRate > 5 ? "staging_first" : "proceed",
+        simulationMethod: method,
+        duration: durationMs
       }, null, 2);
     }
   };
@@ -174,10 +187,14 @@ export function createReplanTool(engine: ExecutionGraphEngine): any {
   };
 }
 
-export function getGraphTools(engine: ExecutionGraphEngine): any[] {
+export function getGraphTools(
+  engine: ExecutionGraphEngine, 
+  simEngine: SimulationEngine, 
+  getTwinFn: (env: string) => DigitalTwin | null
+): any[] {
   return [
     createSubmitPlanTool(engine),
-    createSimulateBranchTool(),
+    createSimulateBranchTool(simEngine, getTwinFn),
     createReplanTool(engine)
   ];
 }

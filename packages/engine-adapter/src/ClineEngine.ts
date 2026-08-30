@@ -60,6 +60,9 @@ export interface StartEngineSessionOptions {
   systemPrompt?: string;
   customInstructions?: string;
   graphEngine?: ExecutionGraphEngine;
+  simEngine?: any;
+  getTwinFn?: (env: string) => any;
+  workforceEngine?: any; // WorkforceGraphEngine
 }
 
 export interface ClineEngineHealthStatus {
@@ -84,6 +87,9 @@ export class ClineEngine {
   private initializedAt: Date | undefined;
   public readonly toolGateway: ToolGateway;
   public graphEngine?: ExecutionGraphEngine;
+  public simEngine?: any;
+  public getTwinFn?: (env: string) => any;
+  public workforceEngine?: any;
   
   // Cache to store authorization context between requestToolApproval and actual execution
   private readonly pendingToolCalls = new Map<string, {
@@ -125,6 +131,28 @@ export class ClineEngine {
 
         if (!result.success) {
           throw new Error(`ToolGateway Execution Failed: ${result.error}`);
+        }
+
+        if (toolName === "team_spawn_teammate" && this.workforceEngine) {
+          const spawnedAgentId = (result.output as any)?.agentId || `spawned-${crypto.randomUUID()}`;
+          this.workforceEngine.registerSpawn({
+            agentId: spawnedAgentId,
+            parentAgentId: pending.context.agentId,
+            teamId: pending.context.teamId || "default-team",
+            missionId: pending.context.missionId || "unknown",
+            taskId: pending.context.taskId,
+            runId: pending.context.runId,
+            attemptId: pending.context.attemptId,
+            runtimeId: pending.context.runtimeId,
+            clineSessionId: pending.context.sessionId
+          });
+        }
+        
+        if (toolName === "team_terminate_teammate" && this.workforceEngine) {
+           const targetAgentId = args[0]?.agentId || (result.output as any)?.agentId;
+           if (targetAgentId) {
+             this.workforceEngine.registerTermination(targetAgentId);
+           }
         }
 
         return result.output as any;
@@ -385,6 +413,15 @@ export class ClineEngine {
     if (options.graphEngine) {
       this.graphEngine = options.graphEngine;
     }
+    if (options.simEngine) {
+      this.simEngine = options.simEngine;
+    }
+    if (options.getTwinFn) {
+      this.getTwinFn = options.getTwinFn;
+    }
+    if (options.workforceEngine) {
+      this.workforceEngine = options.workforceEngine;
+    }
     const cline = this.getCline();
     const synapseSessionId = options.synapseSessionId || crypto.randomUUID();
     const runtimeId = options.runtimeId || crypto.randomUUID();
@@ -415,7 +452,7 @@ export class ClineEngine {
           workspaceRoot: options.workspacePath || options.cwd,
         } as any,
         localRuntime: {
-          extraTools: this.graphEngine ? getGraphTools(this.graphEngine) : []
+          extraTools: this.graphEngine ? getGraphTools(this.graphEngine, this.simEngine, this.getTwinFn ?? ((_env: string) => null)) : []
         } as any
       },
     });

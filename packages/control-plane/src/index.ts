@@ -22,3 +22,4 @@ export * from './TeamController.js';
 export * from './AgentController.js';
 export * from './ControlPlane.js';
 export * from "./graph/ExecutionGraphEngine.js";
+export * from "./graph/WorkforceGraphEngine.js";

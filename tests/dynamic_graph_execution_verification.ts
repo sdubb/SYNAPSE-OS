@@ -2,12 +2,17 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { ClineEngine, getGraphTools } from "@synapse/engine-adapter";
 import { ExecutionGraphEngine } from "@synapse/control-plane";
 import { ToolGateway } from "@synapse/tool-gateway";
+import { SimulationEngine } from "@synapse/simulation-engine";
+import { DigitalTwin } from "@synapse/twin-engine";
+import { WorldModel, Entity, Relationship } from "@synapse/world-engine";
 import crypto from "node:crypto";
 
 describe("SYNAPSE-OS Dynamic Execution Graph Integration", () => {
   let engine: ClineEngine;
   let toolGateway: ToolGateway;
   let graphEngine: ExecutionGraphEngine;
+  let simEngine: SimulationEngine;
+  let twin: DigitalTwin;
 
   const tenantId = "tenant-e2e-graph";
   const agentId = "agent-planner";
@@ -26,6 +31,37 @@ describe("SYNAPSE-OS Dynamic Execution Graph Integration", () => {
       missionId
     });
 
+    simEngine = new SimulationEngine();
+    
+    // Explicit WorldModel as requested in step 15
+    const model = new WorldModel(
+      { id: "world-test", name: "Test World", tenantId, version: 1 },
+      {
+        entities: [
+          new Entity({ id: "api", type: "Service", name: "API", state: { available: true } }),
+          new Entity({ id: "gateway", type: "Service", name: "Gateway", state: { available: true } }),
+          new Entity({ id: "database", type: "Database", name: "Database", state: { available: true, schemaVersion: "v1" } }),
+          new Entity({ id: "worker", type: "Service", name: "Worker", state: { available: true } }),
+        ],
+        relationships: [
+          new Relationship({ id: "rel1", sourceId: "api", targetId: "gateway", relationType: "DEPENDS_ON" }),
+          new Relationship({ id: "rel2", sourceId: "gateway", targetId: "database", relationType: "DEPENDS_ON" }),
+          new Relationship({ id: "rel3", sourceId: "worker", targetId: "database", relationType: "DEPENDS_ON" }),
+        ],
+        constraints: [],
+        behaviors: []
+      }
+    );
+    
+    twin = new DigitalTwin({
+      id: "twin-test",
+      name: "Test Twin",
+      targetSystemId: "test-env",
+      primarySourceSystem: "sim",
+      tenantId,
+      baselineModel: model
+    });
+
     engine = new ClineEngine({
       clientName: "synapse-test",
       toolGateway
@@ -34,9 +70,11 @@ describe("SYNAPSE-OS Dynamic Execution Graph Integration", () => {
     await engine.initialize();
   });
 
+  const getTwinFn = (env: string) => env === "production" ? twin : null;
+
   test("Graph Creation: Structured plan submitted via tool", async () => {
     // Simulate Cline evaluating the prompt and deciding to submit a plan via tool
-    const submitTool = getGraphTools(graphEngine).find((t: any) => t.name === "submit_execution_plan");
+    const submitTool = getGraphTools(graphEngine, simEngine, getTwinFn).find((t: any) => t.name === "submit_execution_plan");
     if (!submitTool) throw new Error("Tool not injected");
     
     const rawPlanPayload = {
@@ -71,15 +109,26 @@ describe("SYNAPSE-OS Dynamic Execution Graph Integration", () => {
   });
 
   test("Simulation: Branch evaluation recommends safe paths", async () => {
-    const simulateTool = getGraphTools(graphEngine).find((t: any) => t.name === "simulate_execution_branch");
+    const simulateTool = getGraphTools(graphEngine, simEngine, getTwinFn).find((t: any) => t.name === "simulate_execution_branch");
     const simResultStr = await simulateTool.execute({
-      scenario: "database schema is wrong",
-      proposedAction: "modify_code (schema change)"
+      targetNodeId: "modify_code",
+      targetEntityId: "database",
+      mutation: { 
+        property: "errorRate",
+        value: 15
+      },
+      actionType: "DATABASE_MIGRATION",
+      environment: "production",
+      expectedChange: "Schema mismatch causes errors",
+      riskContext: "HIGH",
+      iterations: 10
     }, {} as any);
     
     const simResult = JSON.parse(simResultStr as string);
     expect(simResult.outcomes.failureRate).toBeDefined();
-    expect(simResult.recommendedBranch).toContain("staging migration");
+    expect(simResult.recommendedBranch).toContain("staging_first");
+    expect(simResult.blastRadius).toBeGreaterThanOrEqual(1);
+    expect(simResult.affectedEntities).toBeGreaterThanOrEqual(1);
   });
 
   test("Graph Transition: Path changes dynamically based on context", () => {
@@ -100,7 +149,7 @@ describe("SYNAPSE-OS Dynamic Execution Graph Integration", () => {
   });
 
   test("Replanning: Fallback generates a new version", async () => {
-    const replanTool = getGraphTools(graphEngine).find((t: any) => t.name === "propose_replan");
+    const replanTool = getGraphTools(graphEngine, simEngine, getTwinFn).find((t: any) => t.name === "propose_replan");
     
     const result = await replanTool.execute({
       failedNodeId: "verify",
@@ -135,6 +184,40 @@ describe("SYNAPSE-OS Dynamic Execution Graph Integration", () => {
     const resolvedEscalation = graphEngine.getEscalation(escalation.id);
     expect(resolvedEscalation?.status).toBe("RESOLVED");
     expect(resolvedEscalation?.resolvedByUserId).toBe("user-123");
+  });
+
+  test("Immutability: Graph versions remain byte-for-byte stable", () => {
+    // 1. Capture snapshot of V1
+    const v1 = graphEngine.getGraph(1);
+    const v1Snapshot = JSON.stringify(v1);
+
+    // 2. Perform actions on V3 (current active)
+    const currentActive = graphEngine.getGraph(); // currently V3
+    graphEngine.updateNodeState(currentActive.nodes[0].id, "FAILED", { reason: "ImmTest" });
+
+    // 3. Mutate V3 directly to test deep immutability against V1
+    currentActive.nodes.push({
+      id: "malicious_injection",
+      type: "ACTION",
+      title: "Hacked Node"
+    });
+    
+    // 4. Create V4 via replan
+    const v4 = graphEngine.replan([
+      { id: "v4_node", type: "ACTION", title: "V4 Node" }
+    ], [], "Testing immutability");
+
+    // 5. Verify V1 is untouched and byte-for-byte identical
+    const v1After = graphEngine.getGraph(1);
+    const v1AfterSnapshot = JSON.stringify(v1After);
+
+    expect(v1AfterSnapshot).toEqual(v1Snapshot);
+    
+    // Ensure the malicious node did not leak into V1
+    expect(v1After.nodes.find(n => n.id === "malicious_injection")).toBeUndefined();
+    // Ensure the V4 node is only in V4
+    expect(v1After.nodes.find(n => n.id === "v4_node")).toBeUndefined();
+    expect(v4.nodes.find(n => n.id === "v4_node")).toBeDefined();
   });
 });
 

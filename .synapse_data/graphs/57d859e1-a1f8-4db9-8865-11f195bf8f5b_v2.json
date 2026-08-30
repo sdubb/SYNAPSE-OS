@@ -1,0 +1,97 @@
+{
+  "id": "57d859e1-a1f8-4db9-8865-11f195bf8f5b",
+  "tenantId": "tenant-e2e-graph",
+  "missionId": "miss-checkout-fix",
+  "version": 2,
+  "nodes": [
+    {
+      "id": "inspect_api",
+      "type": "ACTION",
+      "title": "Inspect API",
+      "expectedOutcome": "Determine API health",
+      "state": "COMPLETED",
+      "completedAt": "2026-08-30T04:47:43.829Z",
+      "output": {
+        "health": true
+      }
+    },
+    {
+      "id": "api_decision",
+      "type": "BRANCH",
+      "title": "API Health Decision"
+    },
+    {
+      "id": "inspect_gateway",
+      "type": "ACTION",
+      "title": "Inspect Gateway"
+    },
+    {
+      "id": "inspect_database",
+      "type": "ACTION",
+      "title": "Inspect Database"
+    },
+    {
+      "id": "modify_code",
+      "type": "ACTION",
+      "title": "Modify Code",
+      "riskLevel": "HIGH"
+    },
+    {
+      "id": "approval",
+      "type": "APPROVAL",
+      "title": "Operator Approval"
+    },
+    {
+      "id": "verify",
+      "type": "VERIFICATION",
+      "title": "Run Tests"
+    },
+    {
+      "id": "human",
+      "type": "ESCALATION",
+      "title": "Escalate to Human"
+    }
+  ],
+  "edges": [
+    {
+      "from": "inspect_api",
+      "to": "api_decision"
+    },
+    {
+      "from": "api_decision",
+      "to": "inspect_database",
+      "condition": "api.healthy == true",
+      "traversalCount": 1
+    },
+    {
+      "from": "api_decision",
+      "to": "inspect_gateway",
+      "condition": "api.healthy == false",
+      "traversalCount": 1
+    },
+    {
+      "from": "inspect_database",
+      "to": "modify_code"
+    },
+    {
+      "from": "modify_code",
+      "to": "approval"
+    },
+    {
+      "from": "approval",
+      "to": "verify"
+    },
+    {
+      "from": "verify",
+      "to": "human",
+      "condition": "verification.passed == false"
+    }
+  ],
+  "objective": "",
+  "risk": {},
+  "approvalPoints": [],
+  "escalationPoints": [],
+  "verificationPlan": [],
+  "createdAt": "2026-08-30T04:47:43.704Z",
+  "updatedAt": "2026-08-30T04:47:43.829Z"
+}

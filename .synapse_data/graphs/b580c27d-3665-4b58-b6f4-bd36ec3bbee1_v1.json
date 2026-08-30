@@ -1,0 +1,15 @@
+{
+  "id": "b580c27d-3665-4b58-b6f4-bd36ec3bbee1",
+  "tenantId": "tenant-e2e-graph",
+  "missionId": "miss-checkout-fix",
+  "version": 1,
+  "nodes": [],
+  "edges": [],
+  "objective": "",
+  "risk": {},
+  "approvalPoints": [],
+  "escalationPoints": [],
+  "verificationPlan": [],
+  "createdAt": "2026-08-30T04:48:04.348Z",
+  "updatedAt": "2026-08-30T04:48:04.349Z"
+}

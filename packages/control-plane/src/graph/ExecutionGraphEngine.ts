@@ -26,6 +26,7 @@ export class ExecutionGraphEngine {
   private planVersions: PlanVersion[] = [];
   private eventEmitter: (event: any) => void = () => {};
   private store: IGraphStore;
+  private graphContext: Record<string, any> = {};
 
   constructor(options: GraphEngineOptions) {
     this.store = options.store || new FileGraphStore();
@@ -166,6 +167,14 @@ export class ExecutionGraphEngine {
     const node = this.getNode(nodeId);
     if (!node) throw new Error(`Node ${nodeId} not found`);
 
+    if (state === "RUNNING") {
+      const activeFrontier = this.getFrontier();
+      const isActive = activeFrontier.some(n => n.id === nodeId);
+      if (!isActive && node.state !== "QUEUED" && node.state !== "CREATED" && node.state !== "PAUSED") {
+        throw new Error(`Node ${nodeId} cannot be executed. It is not in the active frontier (current state: ${node.state})`);
+      }
+    }
+
     node.state = state;
     if (state === "RUNNING") node.startedAt = new Date().toISOString();
     if (["COMPLETED", "FAILED", "TERMINATED"].includes(state)) {
@@ -185,7 +194,16 @@ export class ExecutionGraphEngine {
     return ConditionEvaluator.evaluate(condition, context);
   }
 
-  public getNextNodes(nodeId: string, context: Record<string, any> = {}): GraphNode[] {
+  public updateGraphContext(key: string, value: any, provenance: string) {
+    this.graphContext[key] = value;
+    this.emit("graph.context.updated", { key, value, provenance });
+  }
+
+  public getGraphContext(): Record<string, any> {
+    return { ...this.graphContext };
+  }
+
+  public getNextNodes(nodeId: string, contextOverrides: Record<string, any> = {}): GraphNode[] {
     const graph = this.getGraph();
     const node = this.getNode(nodeId);
     if (!node) return [];
@@ -193,24 +211,62 @@ export class ExecutionGraphEngine {
     const outgoingEdges = graph.edges.filter(e => e.from === nodeId);
     const nextNodes: GraphNode[] = [];
 
+    const context = { ...this.graphContext, ...contextOverrides };
+
     for (const edge of outgoingEdges) {
       let conditionMet = true;
+      let conditionResult = true;
       if (edge.condition) {
         conditionMet = this.evaluateCondition(edge.condition, context);
+        conditionResult = conditionMet;
       }
       
       if (conditionMet) {
         edge.traversalCount = (edge.traversalCount || 0) + 1;
         this.store.saveGraph(graph);
-        this.emit("graph.branch.selected", { edgeId: edge.id, to: edge.to, version: graph.version });
+        this.emit("graph.branch.selected", { 
+          graphId: graph.id,
+          version: graph.version,
+          nodeId: nodeId,
+          edgeId: edge.id, 
+          to: edge.to, 
+          condition: edge.condition,
+          result: conditionResult,
+          contextSnapshot: { ...context }
+        });
         const target = this.getNode(edge.to);
         if (target) nextNodes.push(target);
       } else {
-        this.emit("graph.branch.rejected", { edgeId: edge.id, to: edge.to, version: graph.version });
+        this.emit("graph.branch.skipped", { 
+          graphId: graph.id,
+          version: graph.version,
+          nodeId: nodeId,
+          edgeId: edge.id, 
+          condition: edge.condition,
+          result: conditionResult,
+          contextSnapshot: { ...context }
+        });
       }
     }
 
     return nextNodes;
+  }
+
+  public getFrontier(): GraphNode[] {
+    const graph = this.getGraph();
+    // Frontier logic:
+    // 1. Any node that is RUNNING, WAITING, QUEUED or PAUSED
+    // 2. If no nodes are in those states, find entry nodes (in-degree 0) that are CREATED
+    let activeNodes = graph.nodes.filter(n => 
+      n.state === "RUNNING" || n.state === "WAITING" || n.state === "QUEUED" || n.state === "PAUSED"
+    );
+
+    if (activeNodes.length === 0) {
+      const targets = new Set(graph.edges.map(e => e.to));
+      activeNodes = graph.nodes.filter(n => !targets.has(n.id) && n.state === "CREATED");
+    }
+    
+    return activeNodes;
   }
 
   public escalate(nodeId: string, level: EscalationLevel, reason: string, context: Record<string, any> = {}): EscalationRequest {
@@ -227,6 +283,11 @@ export class ExecutionGraphEngine {
     };
     this.escalations.set(req.id, req);
     this.store.saveEscalation(req);
+
+    if (level === "LEVEL_3" || level === "LEVEL_4") {
+      this.updateNodeState(nodeId, "BLOCKED", undefined, `Escalated: ${reason}`);
+    }
+
     this.emit("graph.escalation.required", { escalation: req, version: graph.version });
     return req;
   }
@@ -244,6 +305,15 @@ export class ExecutionGraphEngine {
     req.resolvedByUserId = userId;
     
     this.store.saveEscalation(req);
+
+    if (resolution === "RESOLVED") {
+      try {
+        this.updateNodeState(req.nodeId, "QUEUED");
+      } catch (e) {
+        // Ignore if node is already completed or terminated
+      }
+    }
+
     this.emit("graph.escalation.resolved", { escalation: req });
   }
 }

@@ -1,0 +1,14 @@
+{
+  "id": "45e94813-3ceb-4a72-b05d-d4bc30471bb2",
+  "graphId": "bfa7a640-86ae-4738-be9b-b8f57c1a977b",
+  "nodeId": "human",
+  "level": "LEVEL_3",
+  "reason": "Rollback failed, system unstable",
+  "context": {
+    "reason": "DB locked"
+  },
+  "status": "RESOLVED",
+  "createdAt": "2026-08-30T05:07:18.039Z",
+  "resolvedAt": "2026-08-30T05:07:18.040Z",
+  "resolvedByUserId": "user-123"
+}
