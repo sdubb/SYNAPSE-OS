@@ -162,6 +162,22 @@ export class KillSwitch extends EventEmitter {
     return this.lockedWorkspaces.has(norm);
   }
 
+  public unlockWorkspace(workspacePath: string): void {
+    const norm = path.normalize(path.resolve(workspacePath));
+    this.lockedWorkspaces.delete(norm);
+  }
+
+  public reset(): void {
+    this.activeAbortControllers.clear();
+    this.stoppedSessions.clear();
+    this.stoppedAgents.clear();
+    this.stoppedRuntimes.clear();
+    this.stoppedTenants.clear();
+    this.globalStop = false;
+    this.lockedWorkspaces.clear();
+    this.revokedTokens.clear();
+  }
+
   public isTokenRevoked(tokenId: string): boolean {
     return this.revokedTokens.has(tokenId);
   }

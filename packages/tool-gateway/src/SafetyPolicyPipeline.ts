@@ -46,10 +46,12 @@ export class SafetyPolicyPipeline {
         }
       }
       
-      const normalizedRoot = path.resolve(context.workspaceRoot);
+      const normalizedRoot = path.normalize(path.resolve(context.workspaceRoot));
+      const checkRoot = process.platform === "win32" ? normalizedRoot.toLowerCase() : normalizedRoot;
       for (const p of extractedPaths) {
-        const normalizedP = path.resolve(context.workspaceRoot, p);
-        if (!normalizedP.startsWith(normalizedRoot)) {
+        const normalizedP = path.normalize(path.isAbsolute(p) ? path.resolve(p) : path.resolve(context.workspaceRoot, p));
+        const checkP = process.platform === "win32" ? normalizedP.toLowerCase() : normalizedP;
+        if (!checkP.startsWith(checkRoot)) {
           return {
             authorized: false,
             decision: "BLOCK",

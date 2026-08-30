@@ -472,7 +472,7 @@ export class ToolGateway {
     // If no authorization token provided, run authorization inline
     let riskLevel: string = "LOW";
     if (!authorizationToken) {
-      const authResult = await this.evaluateAndAuthorizeToolCall(context);
+      const authResult = await this.evaluateAndAuthorizeToolCall({ ...context, callId });
       if (!authResult.authorized) {
         return {
           success: false,
