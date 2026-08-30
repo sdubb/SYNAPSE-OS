@@ -1,15 +1,8 @@
 import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
-  Activity,
-  GitBranch,
-  Users,
-  FlaskConical,
-  ShieldCheck,
-  AlertTriangle,
-  ScrollText,
-  Cpu,
-  Network,
+  Activity, GitBranch, Users, FlaskConical,
+  ShieldCheck, AlertTriangle, ScrollText, Network,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useRealtime } from '@/realtime/WSConnectionProvider';
@@ -31,13 +24,11 @@ export function Sidebar() {
 
   const sections: NavSection[] = [
     {
-      title: 'OPERATOR',
+      title: 'MISSIONS',
       items: [
-        { label: 'Missions', path: '/missions', icon: <Activity className="w-4 h-4 shrink-0" /> },
+        { label: 'Command', path: '/missions', icon: <Activity className="w-4 h-4 shrink-0" /> },
         { label: 'Execution Graph', path: '/graph', icon: <GitBranch className="w-4 h-4 shrink-0" /> },
-        { label: 'Graph Versions', path: '/graph/versions', icon: <GitBranch className="w-4 h-4 shrink-0" /> },
         { label: 'Workforce', path: '/workforce', icon: <Users className="w-4 h-4 shrink-0" /> },
-        { label: 'Simulation', path: '/simulation', icon: <FlaskConical className="w-4 h-4 shrink-0" /> },
       ],
     },
     {
@@ -46,12 +37,13 @@ export function Sidebar() {
         { label: 'Approvals', path: '/approvals', icon: <ShieldCheck className="w-4 h-4 shrink-0" /> },
         { label: 'Escalations', path: '/escalations', icon: <AlertTriangle className="w-4 h-4 shrink-0" /> },
         { label: 'Audit Trail', path: '/audit', icon: <ScrollText className="w-4 h-4 shrink-0" /> },
+        { label: 'Simulation', path: '/simulation', icon: <FlaskConical className="w-4 h-4 shrink-0" /> },
       ],
     },
   ];
 
   return (
-    <aside className="w-60 h-screen bg-slate-950/90 border-r border-slate-800 flex flex-col shrink-0 select-none z-20 overflow-y-auto">
+    <aside className="w-56 h-screen bg-slate-950/90 border-r border-slate-800 flex flex-col shrink-0 select-none z-20 overflow-y-auto">
       {/* Brand */}
       <div className="h-14 px-4 flex items-center gap-3 border-b border-slate-800 shrink-0 bg-slate-950">
         <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-cyan-600 via-blue-600 to-indigo-600 flex items-center justify-center">
@@ -62,7 +54,7 @@ export function Sidebar() {
             <span className="font-bold text-sm tracking-wide text-white font-mono">SYNAPSE</span>
             <span className="text-[10px] px-1 py-0.2 rounded bg-cyan-950 text-cyan-400 font-mono border border-cyan-500/30">OS</span>
           </div>
-          <p className="text-[10px] text-slate-400 font-mono">Operator Console</p>
+          <p className="text-[10px] text-slate-400 font-mono">Operator</p>
         </div>
       </div>
 
@@ -123,7 +115,7 @@ export function Sidebar() {
                 ? 'text-emerald-400 bg-emerald-950/60 border border-emerald-500/30'
                 : 'text-amber-400 bg-amber-950/60 border border-amber-500/30'
             )}>
-              {wsStatus === 'CONNECTED' ? 'CONNECTED' : wsStatus}
+              {wsStatus === 'CONNECTED' ? '● LIVE' : wsStatus}
             </span>
           </div>
         </div>
