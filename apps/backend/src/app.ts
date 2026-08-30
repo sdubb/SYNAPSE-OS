@@ -27,6 +27,7 @@ import { worldRouter } from './routes/world.routes.js';
 import { simulationsRouter } from './routes/simulations.routes.js';
 import { providersRouter } from './routes/providers.routes.js';
 import { workspacesRouter } from './routes/workspaces.routes.js';
+import { providerCredentialsRouter } from './routes/provider-credentials.routes.js';
 import { healthRouter } from './routes/health.routes.js';
 import { catalogRouter } from './routes/catalog.routes.js';
 
@@ -79,6 +80,7 @@ export function createApp(): Express {
   api.use('/simulations', simulationsRouter);
   api.use('/providers', providersRouter);
   api.use('/workspaces', workspacesRouter);
+  api.use('/provider-credentials', providerCredentialsRouter);
   api.use('/catalog', catalogRouter);
 
   app.use('/api/v1', api);

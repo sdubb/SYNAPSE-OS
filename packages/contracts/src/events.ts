@@ -1,6 +1,15 @@
 import { z } from "zod";
 
 export const SynapseEventTypeSchema = z.enum([
+  // Mission & Graph Lifecycle
+  "mission.created",
+  "mission.updated",
+  "mission.status_changed",
+  "graph.updated",
+  "node.started",
+  "node.completed",
+  "node.failed",
+
   // Agent Lifecycle
   "agent.created",
   "agent.updated",
@@ -11,7 +20,9 @@ export const SynapseEventTypeSchema = z.enum([
   "agent.resumed",
   "agent.stopped",
   "agent.aborted",
+  "agent.completed",
   "agent.failed",
+  "cline.status_changed",
 
   // Stream & Message Semantics
   "stream.delta",
@@ -22,6 +33,7 @@ export const SynapseEventTypeSchema = z.enum([
   // Session Lifecycle
   "session.initialized",
   "session.started",
+  "session.updated",
   "session.chunk",
   "session.message",
   "session.thought",
@@ -68,7 +80,9 @@ export const SynapseEventTypeSchema = z.enum([
   "tool.completed",
   "tool.failed",
 
-  // Policy & Governance
+  // Approval & Governance
+  "approval.created",
+  "approval.resolved",
   "policy.evaluated",
   "policy.allowed",
   "policy.blocked",
@@ -85,6 +99,7 @@ export const SynapseEventTypeSchema = z.enum([
   "verification.completed",
   "evidence.collected",
   "evidence.sealed",
+  "observation.recorded",
 
   // Team & Collaboration
   "team.created",
@@ -111,6 +126,7 @@ export const SynapseEventTypeSchema = z.enum([
 
   // System & Audit
   "audit.entry_recorded",
+  "audit.recorded",
   "telemetry.metric_emitted",
   "system.heartbeat",
   "system.error",

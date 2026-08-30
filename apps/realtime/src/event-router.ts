@@ -23,11 +23,22 @@ export class EventRouter {
     // 2. Resource-specific channels
     if (event.agentId) candidateChannels.add(`agent:${event.agentId}`);
     if (event.sessionId) candidateChannels.add(`session:${event.sessionId}`);
+    if (event.missionId) candidateChannels.add(`mission:${event.missionId}`);
     if (event.taskId) candidateChannels.add(`task:${event.taskId}`);
+    if (event.workspaceId) candidateChannels.add(`workspace:${event.workspaceId}`);
 
     // 3. Category-specific channels
     if (event.eventType.startsWith('approval.')) {
       candidateChannels.add(`approvals:${event.tenantId}`);
+    }
+    if (event.eventType.startsWith('graph.') || event.eventType.startsWith('node.')) {
+      candidateChannels.add(`graph:${event.tenantId}`);
+    }
+    if (event.eventType.startsWith('workforce.') || event.eventType.startsWith('agent.')) {
+      candidateChannels.add(`workforce:${event.tenantId}`);
+    }
+    if (event.eventType.startsWith('audit.')) {
+      candidateChannels.add(`audit:${event.tenantId}`);
     }
     if (event.eventType.startsWith('telemetry.')) {
       candidateChannels.add(`telemetry:${event.tenantId}`);

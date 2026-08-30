@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Activity, ShieldAlert, LogOut, Building, User, ChevronRight } from 'lucide-react';
+import { Activity, ShieldAlert, LogOut, Building, User, ChevronRight, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/state/auth';
 import { useRealtime } from '@/realtime/WSConnectionProvider';
+import { useHealth } from '@/hooks/useHealth';
 import { GlobalCommandPalette } from './GlobalCommandPalette';
 import { AttentionNotification } from './AttentionNotification';
 import { Avatar } from '../ui/Avatar';
@@ -11,12 +12,14 @@ import { Dialog } from '../ui/Dialog';
 import { Button } from '../ui/Button';
 import { api } from '@/api/client';
 import { useToast } from '../ui/Toast';
+import { cn } from '@/lib/utils';
 
 export function TopBar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const { status: wsStatus } = useRealtime();
+  const { data: healthData, isError: healthError } = useHealth();
   const { success, error } = useToast();
 
   const [isHealthModalOpen, setIsHealthModalOpen] = useState(false);
@@ -44,7 +47,8 @@ export function TopBar() {
   const handleKillSwitch = async () => {
     setIsTriggeringKillSwitch(true);
     try {
-      await api.triggerKillSwitch(emergencyReason || 'Operator emergency stop triggered');        success('Emergency kill-switch triggered', 'All active runtimes halted.');
+      await api.triggerKillSwitch(emergencyReason || 'Operator emergency stop triggered');
+      success('Emergency kill-switch triggered', 'All active runtimes halted.');
       setIsEmergencyModalOpen(false);
     } catch (err) {
       error('Kill-switch failed', (err as Error).message);
@@ -54,6 +58,7 @@ export function TopBar() {
   };
 
   const breadcrumbs = getBreadcrumbs();
+  const isHealthy = !healthError && healthData?.status === 'healthy';
 
   return (
     <header className="h-14 px-5 bg-slate-950/80 backdrop-blur-md border-b border-slate-800 flex items-center justify-between z-10 select-none">
@@ -88,10 +93,18 @@ export function TopBar() {
           className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-slate-900 border border-slate-800 hover:border-slate-700 text-[11px] font-mono transition-colors cursor-pointer"
         >
           <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+            <span className={cn(
+              'animate-ping absolute inline-flex h-full w-full rounded-full opacity-75',
+              isHealthy ? 'bg-emerald-400' : 'bg-amber-400'
+            )} />
+            <span className={cn(
+              'relative inline-flex rounded-full h-2 w-2',
+              isHealthy ? 'bg-emerald-500' : 'bg-amber-500'
+            )} />
           </span>
-          <span className="text-slate-300 hidden md:inline">Synapse Healthy</span>
+          <span className="text-slate-300 hidden md:inline font-bold">
+            {isHealthy ? 'Fabric Healthy' : 'Telemetry Active'}
+          </span>
         </button>
 
         {/* Global Attention Notification Badge */}
@@ -172,8 +185,13 @@ export function TopBar() {
               <Activity className="w-4 h-4 text-emerald-400" />
               <span className="text-slate-200 font-semibold">Core API Backend (:3000)</span>
             </div>
-            <span className="text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30">
-              OPERATIONAL
+            <span className={cn(
+              'px-2 py-0.5 rounded border text-[10px]',
+              healthData?.status === 'healthy'
+                ? 'text-emerald-400 bg-emerald-950/60 border-emerald-500/30'
+                : 'text-amber-400 bg-amber-950/60 border-amber-500/30'
+            )}>
+              {healthData?.status?.toUpperCase() || 'UNKNOWN'}
             </span>
           </div>
 
@@ -182,18 +200,18 @@ export function TopBar() {
               <Activity className="w-4 h-4 text-cyan-400" />
               <span className="text-slate-200 font-semibold">Realtime WebSocket Fabric (:3001)</span>
             </div>
-            <span className="text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-500/30">
+            <span className="text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-500/30 text-[10px]">
               {wsStatus}
             </span>
           </div>
 
           <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <Activity className="w-4 h-4 text-emerald-400" />
+              <Activity className="w-4 h-4 text-purple-400" />
               <span className="text-slate-200 font-semibold">Cline Engine Execution Core</span>
             </div>
-            <span className="text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30">
-              READY
+            <span className="text-purple-400 bg-purple-950/60 px-2 py-0.5 rounded border border-purple-500/30 text-[10px]">
+              PRIMARY BRAIN READY
             </span>
           </div>
 
@@ -202,8 +220,8 @@ export function TopBar() {
               <Activity className="w-4 h-4 text-emerald-400" />
               <span className="text-slate-200 font-semibold">Audit Engine Cryptographic Chain</span>
             </div>
-            <span className="text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30">
-              VERIFIED
+            <span className="text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30 text-[10px]">
+              MERKLE VERIFIED
             </span>
           </div>
         </div>
@@ -237,13 +255,13 @@ export function TopBar() {
             WARNING: This action broadcasts a priority halt signal to all worker nodes and engine adapters. Active processes will terminate immediately.
           </p>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-slate-300">Halt Reason / Audit Note</label>
+            <label className="text-xs font-medium text-slate-300 font-mono">Halt Reason / Audit Note</label>
             <input
               type="text"
               value={emergencyReason}
               onChange={(e) => setEmergencyReason(e.target.value)}
               placeholder="e.g. Unintended command execution observed"
-              className="w-full bg-slate-950 border border-slate-800 rounded-md p-2 text-xs text-white outline-none focus:border-rose-500"
+              className="w-full bg-slate-950 border border-slate-800 rounded-md p-2 text-xs text-white outline-none focus:border-rose-500 font-mono"
             />
           </div>
         </div>
@@ -251,3 +269,5 @@ export function TopBar() {
     </header>
   );
 }
+
+export default TopBar;

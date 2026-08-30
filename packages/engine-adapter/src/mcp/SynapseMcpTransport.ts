@@ -4,7 +4,7 @@
  * Uses @modelcontextprotocol/sdk's StreamableHTTPServerTransport.
  *
  * Every MCP connection is authenticated and assigned authoritative context.
- * No unauthenticated connections.
+ * Supports concurrent multi-client connections with dedicated McpServer instances.
  */
 
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -28,6 +28,12 @@ export interface McpTransportRoute {
   handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 }
 
+interface ActiveSession {
+  transport: StreamableHTTPServerTransport;
+  context: McpToolContext;
+  serverInstance: any;
+}
+
 // ============================================================
 // SYNAPSE MCP TRANSPORT
 // ============================================================
@@ -35,8 +41,8 @@ export interface McpTransportRoute {
 export class SynapseMcpTransport {
   private readonly mcpServer: SynapseMcpServer;
   private readonly resolveAuthContext: (req: IncomingMessage) => Promise<McpToolContext | null>;
-  /** Session ID → transport mapping for stateful connections */
-  private readonly sessions = new Map<string, StreamableHTTPServerTransport>();
+  /** Session ID → ActiveSession mapping for multi-client stateful connections */
+  private readonly sessions = new Map<string, ActiveSession>();
 
   constructor(options: McpTransportOptions) {
     this.mcpServer = options.mcpServer;
@@ -48,9 +54,10 @@ export class SynapseMcpTransport {
    *
    * Flow:
    * 1. Authenticate the request → resolve authoritative context
-   * 2. Create/connect StreamableHTTPServerTransport
-   * 3. Route to SynapseMcpServer
-   * 4. Return MCP JSON-RPC response
+   * 2. Validate tenant consistency (fail closed against session fixation)
+   * 3. Create/connect dedicated McpServer + StreamableHTTPServerTransport
+   * 4. Route to McpServer
+   * 5. Return MCP JSON-RPC response
    */
   public async handleRequest(req: IncomingMessage, res: ServerResponse, body?: unknown): Promise<void> {
     try {
@@ -64,32 +71,53 @@ export class SynapseMcpTransport {
 
       // 2. Get or create transport for this session
       const sessionId = this.extractSessionId(req) || randomUUID();
-      let transport = this.sessions.get(sessionId);
+      let activeSession = this.sessions.get(sessionId);
 
-      if (!transport) {
+      if (!activeSession) {
         // Create new stateful transport
-        transport = new StreamableHTTPServerTransport({
+        const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => sessionId,
         });
 
-        // Connect transport to MCP server
-        await this.mcpServer.mcpServer.connect(transport);
-
-        // Register connection context
-        this.mcpServer.registerConnectionContext(sessionId, {
+        // Create dedicated server instance bound to this connection context
+        const serverInstance = this.mcpServer.createDedicatedServer({
           ...authContext,
+          sessionId,
           callId: randomUUID(),
         });
 
-        this.sessions.set(sessionId, transport);
+        // Connect dedicated server to this transport
+        await serverInstance.connect(transport);
 
-        // Set session cookie for subsequent requests
+        // Register connection context in main server registry as well
+        this.mcpServer.registerConnectionContext(sessionId, {
+          ...authContext,
+          sessionId,
+          callId: randomUUID(),
+        });
+
+        activeSession = {
+          transport,
+          context: authContext,
+          serverInstance,
+        };
+
+        this.sessions.set(sessionId, activeSession);
+
+        // Set session header for subsequent requests
         res.setHeader('Mcp-Session-Id', sessionId);
+      } else {
+        // Session fixation / cross-tenant hijacking protection
+        if (activeSession.context.tenantId !== authContext.tenantId) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Forbidden: Cross-tenant session hijacking blocked' }));
+          return;
+        }
       }
 
       // 3. Handle the request through the transport
       const parsedBody = body || await this.parseBody(req);
-      await transport.handleRequest(req, res, parsedBody);
+      await activeSession.transport.handleRequest(req, res, parsedBody);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error('[SynapseMcpTransport] Error handling request:', errorMsg);
@@ -105,9 +133,10 @@ export class SynapseMcpTransport {
    * Handle session termination.
    */
   public async handleSessionClose(sessionId: string): Promise<void> {
-    const transport = this.sessions.get(sessionId);
-    if (transport) {
-      await transport.close().catch(() => {});
+    const active = this.sessions.get(sessionId);
+    if (active) {
+      await active.transport.close().catch(() => {});
+      await active.serverInstance?.close().catch(() => {});
       this.mcpServer.removeConnectionContext(sessionId);
       this.sessions.delete(sessionId);
     }
@@ -117,8 +146,9 @@ export class SynapseMcpTransport {
    * Close all sessions.
    */
   public async closeAll(): Promise<void> {
-    for (const [sessionId, transport] of this.sessions) {
-      await transport.close().catch(() => {});
+    for (const [sessionId, active] of this.sessions) {
+      await active.transport.close().catch(() => {});
+      await active.serverInstance?.close().catch(() => {});
       this.mcpServer.removeConnectionContext(sessionId);
     }
     this.sessions.clear();
@@ -136,11 +166,9 @@ export class SynapseMcpTransport {
   // ============================================================
 
   private extractSessionId(req: IncomingMessage): string | null {
-    // Check Mcp-Session-Id header
     const header = req.headers['mcp-session-id'];
     if (typeof header === 'string') return header;
 
-    // Check URL query parameter
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
     return url.searchParams.get('session_id');
   }

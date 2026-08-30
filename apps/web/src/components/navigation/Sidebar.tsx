@@ -2,7 +2,7 @@ import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   Activity, GitBranch, Users, FlaskConical,
-  ShieldCheck, AlertTriangle, ScrollText, Network,
+  ShieldCheck, AlertTriangle, ScrollText, Network, Key,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useRealtime } from '@/realtime/WSConnectionProvider';
@@ -38,6 +38,12 @@ export function Sidebar() {
         { label: 'Escalations', path: '/escalations', icon: <AlertTriangle className="w-4 h-4 shrink-0" /> },
         { label: 'Audit Trail', path: '/audit', icon: <ScrollText className="w-4 h-4 shrink-0" /> },
         { label: 'Simulation', path: '/simulation', icon: <FlaskConical className="w-4 h-4 shrink-0" /> },
+      ],
+    },
+    {
+      title: 'SETTINGS',
+      items: [
+        { label: 'Provider Keys', path: '/settings/providers', icon: <Key className="w-4 h-4 shrink-0" /> },
       ],
     },
   ];

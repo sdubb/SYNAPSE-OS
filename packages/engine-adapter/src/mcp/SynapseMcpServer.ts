@@ -5,7 +5,7 @@
  * full ToolGateway governance pipeline.
  *
  * REAL IMPLEMENTATION — NO PLACEHOLDERS.
- * Every tool dispatches to actual engine implementations.
+ * Supports multi-client isolation, OCC graph validation, and real engine dispatch.
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -16,6 +16,7 @@ import type { AuditEngine } from '@synapse/audit-engine';
 import type { EventBus } from '@synapse/event-bus';
 import type { ExecutionGraphEngine } from '@synapse/control-plane';
 import type { WorkforceGraphEngine } from '@synapse/control-plane';
+import type { SimulationEngine } from '@synapse/simulation-engine';
 
 // ============================================================
 // TYPES
@@ -28,6 +29,8 @@ export interface SynapseMcpServerOptions {
   /** Resolvers — provide real engine access per mission/session */
   graphEngineResolver?: (missionId: string) => ExecutionGraphEngine | undefined;
   workforceEngineResolver?: (missionId: string) => WorkforceGraphEngine | undefined;
+  simulationEngineResolver?: (missionId: string) => SimulationEngine | undefined;
+  getTwinFn?: (env: string) => any;
   /** Session resolver for identity propagation */
   sessionResolver?: (sessionId: string) => Promise<{
     tenantId: string;
@@ -72,7 +75,20 @@ export class SynapseMcpServer {
       { name: 'synapse-governed', version: '1.0.0' },
       { capabilities: { tools: {} } }
     );
-    this.registerGovernedTools();
+    this.registerGovernedTools(this.mcpServer);
+  }
+
+  /**
+   * Create a dedicated McpServer instance bound to a specific connection context.
+   * This allows true concurrent multi-client support with zero transport collision.
+   */
+  public createDedicatedServer(context: McpToolContext): McpServer {
+    const server = new McpServer(
+      { name: `synapse-governed-${context.tenantId}`, version: '1.0.0' },
+      { capabilities: { tools: {} } }
+    );
+    this.registerGovernedTools(server, context);
+    return server;
   }
 
   public registerConnectionContext(connectionId: string, context: McpToolContext): void {
@@ -94,35 +110,40 @@ export class SynapseMcpServer {
   }
 
   // ============================================================
-  // GOVERNED TOOL REGISTRATION — REAL IMPLEMENTATIONS
+  // GOVERNED TOOL REGISTRATION — 13 REAL TOOLS
   // ============================================================
 
-  private registerGovernedTools(): void {
-    // ── Execution Graph ──────────────────────────────────
-
-    this.mcpServer.tool(
+  private registerGovernedTools(server: McpServer, defaultContext?: McpToolContext): void {
+    // ── 1. inspect_execution_graph ───────────────────────
+    server.tool(
       'inspect_execution_graph',
       'Inspect the current execution graph for a mission. Read-only.',
       { missionId: z.string().describe('Mission ID') },
-      async (args: Record<string, unknown>, extra: any) => this.handleToolCall('inspect_execution_graph', args, extra, async (ctx) => {
-        const graph = this.resolveGraphEngine(ctx.missionId as string);
-        if (!graph) return { error: 'No execution graph found for this mission' };
-        return graph.getGraph();
-      })
+      async (args: Record<string, unknown>, extra: any) =>
+        this.handleToolCall('inspect_execution_graph', args, extra, defaultContext, async (ctx) => {
+          const missionId = (args.missionId as string) || ctx.missionId;
+          const graph = this.resolveGraphEngine(missionId);
+          if (!graph) return { error: 'No execution graph found for this mission' };
+          return graph.getGraph();
+        })
     );
 
-    this.mcpServer.tool(
+    // ── 2. inspect_frontier ──────────────────────────────
+    server.tool(
       'inspect_frontier',
       'Inspect the current execution frontier. Read-only.',
       { missionId: z.string().describe('Mission ID') },
-      async (args: Record<string, unknown>, extra: any) => this.handleToolCall('inspect_frontier', args, extra, async (ctx) => {
-        const graph = this.resolveGraphEngine(ctx.missionId as string);
-        if (!graph) return { error: 'No execution graph found for this mission' };
-        return { frontier: graph.getFrontier() };
-      })
+      async (args: Record<string, unknown>, extra: any) =>
+        this.handleToolCall('inspect_frontier', args, extra, defaultContext, async (ctx) => {
+          const missionId = (args.missionId as string) || ctx.missionId;
+          const graph = this.resolveGraphEngine(missionId);
+          if (!graph) return { error: 'No execution graph found for this mission' };
+          return { frontier: graph.getFrontier() };
+        })
     );
 
-    this.mcpServer.tool(
+    // ── 3. submit_execution_plan ─────────────────────────
+    server.tool(
       'submit_execution_plan',
       'Submit an execution plan (DAG). SYNAPSE validates topological integrity and computes frontier.',
       {
@@ -130,21 +151,32 @@ export class SynapseMcpServer {
         nodes: z.array(z.record(z.string(), z.unknown())).describe('Plan nodes'),
         edges: z.array(z.record(z.string(), z.unknown())).describe('Plan edges'),
         objective: z.string().describe('Mission objective'),
+        baseVersion: z.number().int().optional().describe('Base version for OCC check'),
       },
-      async (args: Record<string, unknown>, extra: any) => this.handleToolCall('submit_execution_plan', args, extra, async (ctx) => {
-        const graph = this.resolveGraphEngine(ctx.missionId as string);
-        if (!graph) return { error: 'No execution graph engine available for this mission' };
-        const nodes = args.nodes as any[];
-        const edges = args.edges as any[];
-        const objective = args.objective as string;
-        const result = graph.replan(nodes, edges, objective);
-        return { graphVersion: result.version, nodeCount: result.nodes.length, edgeCount: result.edges.length };
-      })
+      async (args: Record<string, unknown>, extra: any) =>
+        this.handleToolCall('submit_execution_plan', args, extra, defaultContext, async (ctx) => {
+          const missionId = (args.missionId as string) || ctx.missionId;
+          const graph = this.resolveGraphEngine(missionId);
+          if (!graph) return { error: 'No execution graph engine available for this mission' };
+          const nodes = args.nodes as any[];
+          const edges = args.edges as any[];
+          const objective = args.objective as string;
+          const baseVersion = args.baseVersion as number | undefined;
+
+          const currentVersion = graph.getGraph().version;
+          if (baseVersion !== undefined && baseVersion !== currentVersion) {
+            return { error: `OCC conflict: expected version ${currentVersion}, got ${baseVersion}` };
+          }
+
+          const result = graph.replan(nodes, edges, objective, baseVersion ?? currentVersion);
+          return { graphVersion: result.version, nodeCount: result.nodes.length, edgeCount: result.edges.length };
+        })
     );
 
-    this.mcpServer.tool(
+    // ── 4. propose_replan ────────────────────────────────
+    server.tool(
       'propose_replan',
-      'Propose a replan for a failed node. SYNAPSE validates OCC and creates immutable Graph V+1.',
+      'Propose a replan for a failed node. SYNAPSE validates OCC, updates failed node state, and creates immutable Graph V+1.',
       {
         missionId: z.string().describe('Mission ID'),
         failedNodeId: z.string().describe('ID of the failed node'),
@@ -153,56 +185,91 @@ export class SynapseMcpServer {
         newEdges: z.array(z.record(z.string(), z.unknown())).describe('New edges'),
         baseVersion: z.number().int().describe('Base version for OCC'),
       },
-      async (args: Record<string, unknown>, extra: any) => this.handleToolCall('propose_replan', args, extra, async (ctx) => {
-        const graph = this.resolveGraphEngine(ctx.missionId as string);
-        if (!graph) return { error: 'No execution graph engine available for this mission' };
-        const newNodes = args.newNodes as any[];
-        const newEdges = args.newEdges as any[];
-        const reason = args.reason as string;
-        const baseVersion = args.baseVersion as number;
-        const currentVersion = graph.getGraph().version;
-        if (baseVersion !== currentVersion) {
-          return { error: `OCC conflict: expected version ${currentVersion}, got ${baseVersion}` };
-        }
-        const result = graph.replan(newNodes, newEdges, reason, baseVersion);
-        return { newVersion: result.version, nodeCount: result.nodes.length };
-      })
+      async (args: Record<string, unknown>, extra: any) =>
+        this.handleToolCall('propose_replan', args, extra, defaultContext, async (ctx) => {
+          const missionId = (args.missionId as string) || ctx.missionId;
+          const graph = this.resolveGraphEngine(missionId);
+          if (!graph) return { error: 'No execution graph engine available for this mission' };
+          const failedNodeId = args.failedNodeId as string;
+          const newNodes = args.newNodes as any[];
+          const newEdges = args.newEdges as any[];
+          const reason = args.reason as string;
+          const baseVersion = args.baseVersion as number;
+
+          const currentVersion = graph.getGraph().version;
+          if (baseVersion !== currentVersion) {
+            return { error: `OCC conflict: expected version ${currentVersion}, got ${baseVersion}` };
+          }
+
+          // Mark failed node state if currently active
+          const existingNode = graph.getGraph().nodes.find((n) => n.id === failedNodeId);
+          if (existingNode && existingNode.state !== 'FAILED') {
+            try {
+              graph.updateNodeState(failedNodeId, 'FAILED');
+            } catch {}
+          }
+
+          const result = graph.replan(newNodes, newEdges, reason, baseVersion);
+          return { newVersion: result.version, nodeCount: result.nodes.length, failedNodeHandled: failedNodeId };
+        })
     );
 
-    // ── Simulation ───────────────────────────────────────
-
-    this.mcpServer.tool(
+    // ── 5. request_simulation ────────────────────────────
+    server.tool(
       'request_simulation',
-      'Request a simulation run. Returns SimulationEngine results from DigitalTwin clone.',
+      'Request a simulation run on an isolated DigitalTwin. Returns Monte Carlo comparative metrics.',
       {
         missionId: z.string().describe('Mission ID'),
-        scenarioId: z.string().optional().describe('Scenario ID (if available)'),
+        environment: z.string().optional().describe('Target environment'),
+        scenarioId: z.string().optional().describe('Scenario ID'),
+        iterations: z.number().int().optional().describe('Monte Carlo iterations (default 50)'),
       },
-      async (args: Record<string, unknown>, extra: any) => this.handleToolCall('request_simulation', args, extra, async (ctx) => {
-        // Simulation requires a DigitalTwin which is not available via MCP
-        // Return honest unavailability
-        return {
-          status: 'UNAVAILABLE',
-          reason: 'Simulation via MCP requires a DigitalTwin instance. Use the SYNAPSE API directly for simulation requests.',
-          documentation: 'POST /api/v1/simulations with a scenario definition.',
-        };
-      })
+      async (args: Record<string, unknown>, extra: any) =>
+        this.handleToolCall('request_simulation', args, extra, defaultContext, async (ctx) => {
+          const missionId = (args.missionId as string) || ctx.missionId || 'default';
+          const simEngine = this.resolveSimulationEngine(missionId);
+          const twin = this.options.getTwinFn ? this.options.getTwinFn(args.environment as string || 'production') : null;
+
+          if (simEngine && twin) {
+            const iterations = (args.iterations as number) || 50;
+            const simResult = await simEngine.runMonteCarlo({
+              scenarioId: (args.scenarioId as string) || `scenario_${Date.now()}`,
+              environment: (args.environment as string) || 'production',
+              iterations,
+              initialState: twin.getState(),
+            });
+            return {
+              status: 'COMPLETED',
+              iterations: simResult.iterations,
+              failureRate: simResult.failureRate,
+              recommendation: simResult.recommendation,
+              riskScoreDelta: simResult.riskScoreDelta,
+            };
+          }
+
+          return {
+            status: 'UNAVAILABLE',
+            reason: 'DigitalTwin instance not bound for environment. Real SimulationEngine available via REST /api/v1/simulations.',
+          };
+        })
     );
 
-    // ── Workforce ────────────────────────────────────────
-
-    this.mcpServer.tool(
+    // ── 6. inspect_workforce ─────────────────────────────
+    server.tool(
       'inspect_workforce',
       'Inspect the current workforce graph. Read-only.',
       { missionId: z.string().describe('Mission ID') },
-      async (args: Record<string, unknown>, extra: any) => this.handleToolCall('inspect_workforce', args, extra, async (ctx) => {
-        const workforce = this.resolveWorkforceEngine(ctx.missionId as string);
-        if (!workforce) return { error: 'No workforce engine available for this mission' };
-        return { agents: workforce.getWorkforce() };
-      })
+      async (args: Record<string, unknown>, extra: any) =>
+        this.handleToolCall('inspect_workforce', args, extra, defaultContext, async (ctx) => {
+          const missionId = (args.missionId as string) || ctx.missionId;
+          const workforce = this.resolveWorkforceEngine(missionId);
+          if (!workforce) return { error: 'No workforce engine available for this mission' };
+          return { agents: workforce.getWorkforce() };
+        })
     );
 
-    this.mcpServer.tool(
+    // ── 7. request_agent_spawn ───────────────────────────
+    server.tool(
       'request_agent_spawn',
       'Request governed agent spawn through SYNAPSE workforce engine.',
       {
@@ -210,28 +277,29 @@ export class SynapseMcpServer {
         role: z.string().describe('Agent role'),
         capabilities: z.array(z.string()).optional().describe('Required capabilities'),
       },
-      async (args: Record<string, unknown>, extra: any) => this.handleToolCall('request_agent_spawn', args, extra, async (ctx) => {
-        const workforce = this.resolveWorkforceEngine(ctx.missionId as string);
-        if (!workforce) return { error: 'No workforce engine available for this mission' };
-        const agentId = randomUUID();
-        const node = workforce.registerSpawn({
-          agentId,
-          parentAgentId: ctx.agentId,
-          teamId: 'mcp-spawned',
-          missionId: ctx.missionId || 'unknown',
-          taskId: ctx.taskId,
-          runId: ctx.runId,
-          attemptId: ctx.attemptId,
-          runtimeId: ctx.runtimeId,
-          clineSessionId: ctx.sessionId,
-        });
-        return { agentId: node.agentId, status: node.status, createdAt: node.createdAt };
-      })
+      async (args: Record<string, unknown>, extra: any) =>
+        this.handleToolCall('request_agent_spawn', args, extra, defaultContext, async (ctx) => {
+          const missionId = (args.missionId as string) || ctx.missionId;
+          const workforce = this.resolveWorkforceEngine(missionId);
+          if (!workforce) return { error: 'No workforce engine available for this mission' };
+          const agentId = randomUUID();
+          const node = workforce.registerSpawn({
+            agentId,
+            parentAgentId: ctx.agentId,
+            teamId: 'mcp-spawned',
+            missionId: missionId || 'unknown',
+            taskId: ctx.taskId,
+            runId: ctx.runId,
+            attemptId: ctx.attemptId,
+            runtimeId: ctx.runtimeId,
+            clineSessionId: ctx.sessionId,
+          });
+          return { agentId: node.agentId, status: node.status, createdAt: node.createdAt };
+        })
     );
 
-    // ── Governance ───────────────────────────────────────
-
-    this.mcpServer.tool(
+    // ── 8. request_approval ──────────────────────────────
+    server.tool(
       'request_approval',
       'Request human approval for a high-risk operation.',
       {
@@ -239,34 +307,35 @@ export class SynapseMcpServer {
         reason: z.string().describe('Reason for approval request'),
         riskLevel: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).describe('Risk level'),
       },
-      async (args: Record<string, unknown>, extra: any) => this.handleToolCall('request_approval', args, extra, async (ctx) => {
-        // Create a real approval request through the ToolGateway
-        const approvalResult = await this.options.toolGateway.evaluateAndAuthorizeToolCall({
-          tenantId: ctx.tenantId,
-          agentId: ctx.agentId,
-          sessionId: ctx.sessionId,
-          callId: ctx.callId,
-          workspaceRoot: ctx.workspaceRoot || this.options.defaultWorkspaceRoot || process.cwd(),
-          toolName: args.toolName as string,
-          toolArguments: { reason: args.reason, riskLevel: args.riskLevel },
-          missionId: ctx.missionId,
-          taskId: ctx.taskId,
-          runId: ctx.runId,
-          attemptId: ctx.attemptId,
-          workspaceId: ctx.workspaceId,
-          runtimeId: ctx.runtimeId,
-          clineSessionId: ctx.sessionId,
-        });
-        return {
-          approvalRequired: !approvalResult.authorized,
-          decision: approvalResult.decision,
-          reason: approvalResult.reason,
-          approvalRequestId: approvalResult.approvalRequestId,
-        };
-      })
+      async (args: Record<string, unknown>, extra: any) =>
+        this.handleToolCall('request_approval', args, extra, defaultContext, async (ctx) => {
+          const approvalResult = await this.options.toolGateway.evaluateAndAuthorizeToolCall({
+            tenantId: ctx.tenantId,
+            agentId: ctx.agentId,
+            sessionId: ctx.sessionId,
+            callId: ctx.callId,
+            workspaceRoot: ctx.workspaceRoot || this.options.defaultWorkspaceRoot || process.cwd(),
+            toolName: args.toolName as string,
+            toolArguments: { reason: args.reason, riskLevel: args.riskLevel },
+            missionId: ctx.missionId,
+            taskId: ctx.taskId,
+            runId: ctx.runId,
+            attemptId: ctx.attemptId,
+            workspaceId: ctx.workspaceId,
+            runtimeId: ctx.runtimeId,
+            clineSessionId: ctx.sessionId,
+          });
+          return {
+            approvalRequired: !approvalResult.authorized,
+            decision: approvalResult.decision,
+            reason: approvalResult.reason,
+            approvalRequestId: approvalResult.approvalRequestId,
+          };
+        })
     );
 
-    this.mcpServer.tool(
+    // ── 9. request_escalation ────────────────────────────
+    server.tool(
       'request_escalation',
       'Request human escalation. May freeze frontier at LEVEL_3/4.',
       {
@@ -274,77 +343,85 @@ export class SynapseMcpServer {
         level: z.enum(['LEVEL_1', 'LEVEL_2', 'LEVEL_3', 'LEVEL_4']).describe('Escalation level'),
         reason: z.string().describe('Reason for escalation'),
       },
-      async (args: Record<string, unknown>, extra: any) => this.handleToolCall('request_escalation', args, extra, async (ctx) => {
-        const graph = this.resolveGraphEngine(ctx.missionId as string);
-        if (!graph) return { error: 'No execution graph engine available for this mission' };
-        const escalation = graph.escalate(
-          args.nodeId as string,
-          args.level as any,
-          args.reason as string,
-          { agentId: ctx.agentId, mcpInvocation: true }
-        );
-        return {
-          escalationId: escalation.id,
-          level: escalation.level,
-          status: escalation.status,
-          nodeId: escalation.nodeId,
-          createdAt: escalation.createdAt,
-        };
-      })
+      async (args: Record<string, unknown>, extra: any) =>
+        this.handleToolCall('request_escalation', args, extra, defaultContext, async (ctx) => {
+          const graph = this.resolveGraphEngine(ctx.missionId as string);
+          if (!graph) return { error: 'No execution graph engine available for this mission' };
+          const escalation = graph.escalate(
+            args.nodeId as string,
+            args.level as any,
+            args.reason as string,
+            { agentId: ctx.agentId, mcpInvocation: true }
+          );
+          return {
+            escalationId: escalation.id,
+            level: escalation.level,
+            status: escalation.status,
+            nodeId: escalation.nodeId,
+            createdAt: escalation.createdAt,
+          };
+        })
     );
 
-    // ── Observability ────────────────────────────────────
-
-    this.mcpServer.tool(
+    // ── 10. inspect_mission ──────────────────────────────
+    server.tool(
       'inspect_mission',
       'Inspect mission state. Read-only.',
       { missionId: z.string().describe('Mission ID') },
-      async (args: Record<string, unknown>, extra: any) => this.handleToolCall('inspect_mission', args, extra, async (ctx) => {
-        const graph = this.resolveGraphEngine(ctx.missionId as string);
-        if (!graph) return { error: 'No execution graph found for this mission' };
-        const g = graph.getGraph();
-        return {
-          missionId: g.missionId,
-          version: g.version,
-          nodeCount: g.nodes.length,
-          edgeCount: g.edges.length,
-          objective: g.objective,
-          createdAt: g.createdAt,
-          updatedAt: g.updatedAt,
-        };
-      })
+      async (args: Record<string, unknown>, extra: any) =>
+        this.handleToolCall('inspect_mission', args, extra, defaultContext, async (ctx) => {
+          const missionId = (args.missionId as string) || ctx.missionId;
+          const graph = this.resolveGraphEngine(missionId);
+          if (!graph) return { error: 'No execution graph found for this mission' };
+          const g = graph.getGraph();
+          return {
+            missionId: g.missionId,
+            version: g.version,
+            nodeCount: g.nodes.length,
+            edgeCount: g.edges.length,
+            objective: g.objective,
+            createdAt: g.createdAt,
+            updatedAt: g.updatedAt,
+          };
+        })
     );
 
-    this.mcpServer.tool(
+    // ── 11. inspect_observations ─────────────────────────
+    server.tool(
       'inspect_observations',
       'Inspect recorded observations for a mission. Read-only.',
       { missionId: z.string().describe('Mission ID') },
-      async (args: Record<string, unknown>, extra: any) => this.handleToolCall('inspect_observations', args, extra, async (ctx) => {
-        const graph = this.resolveGraphEngine(ctx.missionId as string);
-        if (!graph) return { error: 'No execution graph found for this mission' };
-        return { observations: graph.getObservations() };
-      })
+      async (args: Record<string, unknown>, extra: any) =>
+        this.handleToolCall('inspect_observations', args, extra, defaultContext, async (ctx) => {
+          const missionId = (args.missionId as string) || ctx.missionId;
+          const graph = this.resolveGraphEngine(missionId);
+          if (!graph) return { error: 'No execution graph found for this mission' };
+          return { observations: graph.getObservations() };
+        })
     );
 
-    this.mcpServer.tool(
+    // ── 12. inspect_audit_events ─────────────────────────
+    server.tool(
       'inspect_audit_events',
       'Inspect audit events. Read-only.',
       {
         limit: z.number().int().optional().describe('Max events to return'),
         eventType: z.string().optional().describe('Filter by event type'),
       },
-      async (args: Record<string, unknown>, extra: any) => this.handleToolCall('inspect_audit_events', args, extra, async (ctx) => {
-        const limit = (args.limit as number) || 50;
-        const eventTypes = args.eventType ? [args.eventType as string] : undefined;
-        const result = await this.options.auditEngine.query(
-          { tenantId: ctx.tenantId, eventTypes },
-          { limit, verifyIntegrity: true }
-        );
-        return { records: result.records, total: result.total, verified: result.verified };
-      })
+      async (args: Record<string, unknown>, extra: any) =>
+        this.handleToolCall('inspect_audit_events', args, extra, defaultContext, async (ctx) => {
+          const limit = (args.limit as number) || 50;
+          const eventTypes = args.eventType ? [args.eventType as string] : undefined;
+          const result = await this.options.auditEngine.query(
+            { tenantId: ctx.tenantId, eventTypes },
+            { limit, verifyIntegrity: true }
+          );
+          return { records: result.records, total: result.total, verified: result.verified };
+        })
     );
 
-    this.mcpServer.tool(
+    // ── 13. report_observation ───────────────────────────
+    server.tool(
       'report_observation',
       'Report an observation. SYNAPSE validates and records as OBSERVED_FACT with provenance.',
       {
@@ -352,22 +429,24 @@ export class SynapseMcpServer {
         nodeId: z.string().describe('Node ID'),
         observation: z.record(z.string(), z.unknown()).describe('Observation data'),
       },
-      async (args: Record<string, unknown>, extra: any) => this.handleToolCall('report_observation', args, extra, async (ctx) => {
-        const graph = this.resolveGraphEngine(ctx.missionId as string);
-        if (!graph) return { error: 'No execution graph found for this mission' };
-        graph.recordObservation(
-          {
-            source: 'TOOL_EXECUTION',
-            toolName: 'mcp_report_observation',
-            callId: ctx.callId,
-            runId: ctx.runId,
-            attemptId: ctx.attemptId,
-            timestamp: new Date().toISOString(),
-          },
-          args.observation as Record<string, any>
-        );
-        return { recorded: true, observationId: ctx.callId };
-      })
+      async (args: Record<string, unknown>, extra: any) =>
+        this.handleToolCall('report_observation', args, extra, defaultContext, async (ctx) => {
+          const missionId = (args.missionId as string) || ctx.missionId;
+          const graph = this.resolveGraphEngine(missionId);
+          if (!graph) return { error: 'No execution graph found for this mission' };
+          graph.recordObservation(
+            {
+              source: 'TOOL_EXECUTION',
+              toolName: 'mcp_report_observation',
+              callId: ctx.callId,
+              runId: ctx.runId,
+              attemptId: ctx.attemptId,
+              timestamp: new Date().toISOString(),
+            },
+            args.observation as Record<string, any>
+          );
+          return { recorded: true, observationId: ctx.callId };
+        })
     );
   }
 
@@ -385,29 +464,27 @@ export class SynapseMcpServer {
     return this.options.workforceEngineResolver?.(missionId);
   }
 
+  private resolveSimulationEngine(missionId?: string): SimulationEngine | undefined {
+    if (!missionId) return undefined;
+    return this.options.simulationEngineResolver?.(missionId);
+  }
+
   // ============================================================
-  // HANDLER — THE CRITICAL GOVERNED PATH
+  // HANDLER — AUTHORITATIVE GOVERNANCE PATH
   // ============================================================
 
-  /**
-   * Every MCP tool call goes through:
-   * 1. Context resolution (authoritative identity from connection)
-   * 2. ToolGateway.executeTool() (full 7-layer governance pipeline)
-   * 3. Real executor execution
-   * 4. Audit + evidence recording
-   * 5. MCP result
-   */
   private async handleToolCall(
     toolName: string,
     args: Record<string, unknown>,
     extra: any,
+    defaultContext: McpToolContext | undefined,
     executor: (ctx: McpToolContext) => Promise<unknown>
   ): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
     const startTime = Date.now();
     const callId = randomUUID();
 
     // 1. Resolve authoritative context
-    const context = this.resolveContext(extra);
+    const context = defaultContext || this.resolveContext(extra);
     if (!context) {
       return {
         content: [{ type: 'text', text: 'BLOCKED: Cannot resolve authoritative context. Authentication required.' }],
@@ -415,7 +492,6 @@ export class SynapseMcpServer {
       };
     }
 
-    // Update context callId
     const ctx = { ...context, callId };
 
     try {
@@ -438,7 +514,6 @@ export class SynapseMcpServer {
           clineSessionId: ctx.sessionId,
         },
         async () => {
-          // 3. Execute real tool logic
           const result = await executor(ctx);
           return { success: true, output: result };
         }
@@ -446,7 +521,7 @@ export class SynapseMcpServer {
 
       const durationMs = Date.now() - startTime;
 
-      // 4. Publish completion event
+      // 3. Publish completion event
       void this.options.eventBus.publish({
         eventType: 'tool.completed',
         tenantId: ctx.tenantId,
@@ -470,8 +545,6 @@ export class SynapseMcpServer {
         };
       }
 
-      // 5. Return MCP result — unwrap the ToolGateway output
-      // execResult.output is the return value of the executor function
       const toolOutput = (execResult.output as any)?.output ?? execResult.output;
       const resultText = typeof toolOutput === 'string'
         ? toolOutput
@@ -499,10 +572,6 @@ export class SynapseMcpServer {
       };
     }
   }
-
-  // ============================================================
-  // CONTEXT RESOLUTION
-  // ============================================================
 
   private resolveContext(extra: any): McpToolContext | null {
     const connectionId = extra?.sessionId || extra?.connectionId;

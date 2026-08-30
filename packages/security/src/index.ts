@@ -6,3 +6,5 @@ export * from "./canary/index.js";
 export * from "./integrity/index.js";
 export * from "./telemetry/index.js";
 export * from "./guardian/index.js";
+export * from "./credential-encryption.js";
+export * from "./provider-credential-resolver.js";

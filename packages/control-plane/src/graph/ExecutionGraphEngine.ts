@@ -177,13 +177,12 @@ export class ExecutionGraphEngine {
     nextGraph.version = nextVersion;
     nextGraph.updatedAt = new Date().toISOString();
     
-    // 2. Validate structure
+    // 2. Prepare new nodes
     const preparedNewNodes: GraphNode[] = newNodes.map(n => ({
       ...n,
       state: n.state || "CREATED",
       attempts: n.attempts || 0,
     }));
-    this.validateGraph([...nextGraph.nodes, ...preparedNewNodes], [...nextGraph.edges, ...newEdges]);
     
     // 3. Mark old replaced nodes as TERMINATED (if they are redefined)
     const newNodeIds = new Set(preparedNewNodes.map(n => n.id));
@@ -193,9 +192,15 @@ export class ExecutionGraphEngine {
       }
     }
 
-    // Append new nodes and edges, filtering out superseded ones from being duplicated
-    nextGraph.nodes = nextGraph.nodes.filter(n => n.state !== "TERMINATED").concat(preparedNewNodes);
-    nextGraph.edges.push(...newEdges);
+    // Merge nodes and edges, filtering out superseded ones
+    const mergedNodes = nextGraph.nodes.filter(n => !newNodeIds.has(n.id) && n.state !== "TERMINATED").concat(preparedNewNodes);
+    const mergedEdges = [...nextGraph.edges, ...newEdges];
+
+    // 4. Validate merged structure
+    this.validateGraph(mergedNodes, mergedEdges);
+
+    nextGraph.nodes = mergedNodes;
+    nextGraph.edges = mergedEdges;
     
     // 4. Save new immutable version
     this.graphs.set(nextVersion, nextGraph);

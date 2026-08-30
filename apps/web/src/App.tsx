@@ -16,6 +16,7 @@ import { ApprovalsPage } from './features/approvals/ApprovalsPage';
 import { EscalationsPage } from './features/escalations/EscalationsPage';
 import { AuditPage } from './features/audit/AuditPage';
 import { RuntimeDetailPage } from './features/runtime/RuntimeDetailPage';
+import { ProviderSettingsPage } from './features/settings/ProviderSettingsPage';
 
 const RoutesComp = Routes as unknown as React.ComponentType<any>;
 const RouteComp = Route as unknown as React.ComponentType<any>;
@@ -80,6 +81,9 @@ export function App() {
 
         {/* Runtime Detail */}
         <RouteComp path="runtime/:id" element={<RuntimeDetailPage />} />
+
+        {/* Settings */}
+        <RouteComp path="settings/providers" element={<ProviderSettingsPage />} />
       </RouteComp>
 
       {/* Fallback */}

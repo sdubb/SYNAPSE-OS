@@ -16,3 +16,4 @@ export * from "./schedules.js";
 export * from "./worlds.js";
 export * from "./simulations.js";
 export * from "./providers.js";
+export * from "./provider_credentials.js";
