@@ -454,13 +454,34 @@ export class ClineEngine {
     }
     const cline = this.getCline();
     const synapseSessionId = options.synapseSessionId || crypto.randomUUID();
+    const clineSessionId = synapseSessionId;
     const runtimeId = options.runtimeId || crypto.randomUUID();
 
     const providerId = options.modelConfig?.provider || "openrouter";
     const modelId = options.modelConfig?.modelId || "openrouter/auto";
     const apiKey = options.modelConfig?.apiKey || process.env.OPENROUTER_API_KEY || "";
 
-    // 1. Start execution via lifecycle handler without YOLO bypass
+    // 1. Instantiate session handle and register in activeSessions BEFORE executing turn
+    // so that handleClineToolApproval can resolve tenant/agent identity during tool calls
+    const session = new ClineSession({
+      synapseSessionId,
+      clineSessionId,
+      tenantId: options.tenantId,
+      agentId: options.agentId,
+      missionId: options.missionId,
+      taskId: options.taskId,
+      runId: options.runId,
+      attemptId: options.attemptId,
+      workspaceId: options.workspaceId,
+      workspacePath: options.workspacePath || options.cwd,
+      runtimeId,
+      cline,
+      modelConfig: options.modelConfig,
+    });
+
+    this.activeSessions.set(synapseSessionId, session);
+
+    // 2. Start execution via lifecycle handler without YOLO bypass
     const startResult = await executeStart({
       cline,
       input: {
@@ -470,6 +491,7 @@ export class ClineEngine {
         systemPrompt: options.systemPrompt ?? "You are a helpful autonomous coding assistant.",
         customInstructions: options.customInstructions ?? "",
         config: {
+          sessionId: clineSessionId,
           providerId,
           modelId,
           apiKey,
@@ -488,27 +510,9 @@ export class ClineEngine {
       },
     });
 
-    const clineSessionId = startResult.sessionId;
-
-    // 2. Wrap into managed ClineSession handle with full metadata
-    const session = new ClineSession({
-      synapseSessionId,
-      clineSessionId,
-      tenantId: options.tenantId,
-      agentId: options.agentId,
-      missionId: options.missionId,
-      taskId: options.taskId,
-      runId: options.runId,
-      attemptId: options.attemptId,
-      workspaceId: options.workspaceId,
-      workspacePath: options.workspacePath || options.cwd,
-      runtimeId,
-      cline,
-      modelConfig: options.modelConfig,
-    });
-
-    this.activeSessions.set(synapseSessionId, session);
-    this.activeSessions.set(clineSessionId, session);
+    if (startResult.sessionId && startResult.sessionId !== clineSessionId) {
+      this.activeSessions.set(startResult.sessionId, session);
+    }
 
     return {
       session,
