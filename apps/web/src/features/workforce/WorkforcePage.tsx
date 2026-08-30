@@ -118,7 +118,10 @@ export function WorkforcePage() {
             key={agent.id}
             agent={agent}
             activeSession={sessionMap.get(agent.id)}
-            onClick={() => navigate(`/agents/${agent.id}`)}
+            onClick={() => {
+              const session = sessionMap.get(agent.id);
+              if (session) navigate(`/runtime/${session.id}`);
+            }}
           />
         ))}
       </div>

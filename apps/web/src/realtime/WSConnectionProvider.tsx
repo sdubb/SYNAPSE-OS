@@ -212,18 +212,4 @@ export function useRealtime(): WSContextValue {
   return context;
 }
 
-export function useWebSocket(): WSContextValue {
-  const context = useContext(WSContext);
-  if (!context) {
-    return {
-      connected: false,
-      status: 'DISCONNECTED',
-      subscribe: () => () => {},
-      unsubscribe: () => {},
-      send: () => {},
-      lastEvent: null,
-      reconnect: () => {},
-    };
-  }
-  return context;
-}
+
