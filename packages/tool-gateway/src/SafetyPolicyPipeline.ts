@@ -25,6 +25,33 @@ export class SafetyPolicyPipeline {
    * Evaluates the proposed tool call across all governance layers in strict precedence order.
    */
   public evaluate(context: ToolInvocationContext): PipelineEvaluationResult {
+    // 0. PRECEDENCE LEVEL 0: Multi-Tenant Context & Scope Boundary Check
+    if (!context.tenantId) {
+      return {
+        authorized: false,
+        decision: "BLOCK",
+        reason: "Tenant context is required but no active tenant context was found in the current execution scope.",
+        remediation: "Specify a valid tenantId in the execution context.",
+        riskLevel: "CRITICAL",
+      };
+    }
+
+    if (context.workspaceRoot) {
+      const lowerWs = context.workspaceRoot.toLowerCase();
+      const lowerTenant = context.tenantId.toLowerCase();
+      // If the workspace root explicitly mentions a specific tenant identifier that does not match this tenant
+      const otherTenantMatch = lowerWs.match(/tenant[_\-]([a-zA-Z0-9_\-]+)/i);
+      if (otherTenantMatch && !lowerTenant.includes(otherTenantMatch[1].toLowerCase()) && !otherTenantMatch[1].toLowerCase().includes(lowerTenant)) {
+        return {
+          authorized: false,
+          decision: "BLOCK",
+          reason: `Zero-trust tenant isolation violation: Workspace root '${context.workspaceRoot}' belongs to a different tenant scope (${otherTenantMatch[0]})`,
+          remediation: "Ensure file operations remain strictly within the assigned tenant's isolated workspace",
+          riskLevel: "CRITICAL",
+        };
+      }
+    }
+
     const killSwitch = this.safetyEngine.getKillSwitch();
 
     // 1. PRECEDENCE LEVEL 1: System Kill Switch Check

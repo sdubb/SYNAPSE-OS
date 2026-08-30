@@ -11,3 +11,5 @@ logs/
 .synapse_queue/
 .synapse_workspaces/
 .synapse_storage/
+.synapse_data/
+

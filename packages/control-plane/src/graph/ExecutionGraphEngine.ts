@@ -19,6 +19,32 @@ export interface GraphEngineOptions {
   store?: IGraphStore;
 }
 
+export interface ObservationProvenance {
+  source: "TOOL_EXECUTION" | "VERIFICATION" | "SYSTEM_MONITOR";
+  toolName?: string;
+  callId?: string;
+  runId?: string;
+  attemptId?: string;
+  evidenceId?: string;
+  auditEventId?: string;
+  timestamp: string;
+}
+
+export interface GraphFact {
+  key: string;
+  value: any;
+  kind: "OBSERVED_FACT" | "AGENT_CLAIM";
+  provenance?: ObservationProvenance;
+  recordedAt: string;
+}
+
+export interface GraphObservationRecord {
+  id: string;
+  provenance: ObservationProvenance;
+  data: Record<string, any>;
+  recordedAt: string;
+}
+
 export class ExecutionGraphEngine {
   private graphs = new Map<number, ExecutionGraph>();
   private activeVersion = 1;
@@ -26,9 +52,16 @@ export class ExecutionGraphEngine {
   private planVersions: PlanVersion[] = [];
   private eventEmitter: (event: any) => void = () => {};
   private store: IGraphStore;
-  private graphContext: Record<string, any> = {};
+  private facts = new Map<string, GraphFact>();
+  private observations: GraphObservationRecord[] = [];
+  public readonly tenantId: string;
+  public readonly missionId: string;
+  public readonly taskId?: string;
 
   constructor(options: GraphEngineOptions) {
+    this.tenantId = options.tenantId;
+    this.missionId = options.missionId;
+    this.taskId = options.taskId;
     this.store = options.store || new FileGraphStore();
     
     let initial: ExecutionGraph;
@@ -56,7 +89,7 @@ export class ExecutionGraphEngine {
     
     this.graphs.set(this.activeVersion, initial);
     
-    const initialVersion = {
+    const initialVersion: PlanVersion = {
       version: initial.version,
       graphId: initial.id,
       createdAt: initial.createdAt,
@@ -98,25 +131,29 @@ export class ExecutionGraphEngine {
   }
 
   public getVersions(): PlanVersion[] {
-    return this.planVersions;
+    return [...this.planVersions];
   }
   
   public validateGraph(nodes: GraphNode[], edges: GraphEdge[]): void {
     const nodeIds = new Set(nodes.map(n => n.id));
-    if (nodeIds.size !== nodes.length) throw new Error("Duplicate node IDs found");
+    if (nodeIds.size !== nodes.length) throw new Error("Duplicate node IDs found in execution graph");
     
     for (const edge of edges) {
-      if (!nodeIds.has(edge.from)) throw new Error(`Edge from unknown node: ${edge.from}`);
-      if (!nodeIds.has(edge.to)) throw new Error(`Edge to unknown node: ${edge.to}`);
+      if (!nodeIds.has(edge.from)) throw new Error(`Edge references unknown origin node: ${edge.from}`);
+      if (!nodeIds.has(edge.to)) throw new Error(`Edge references unknown target node: ${edge.to}`);
       if (edge.condition && typeof edge.condition !== 'string') {
-          throw new Error(`Invalid edge condition type`);
+        throw new Error(`Invalid edge condition type`);
       }
     }
   }
 
-  public replan(newNodes: GraphNode[], newEdges: GraphEdge[], reason: string): ExecutionGraph {
+  public replan(newNodes: GraphNode[], newEdges: GraphEdge[], reason: string, baseVersion?: number): ExecutionGraph {
     this.emit("graph.replan.started", { reason });
     
+    if (baseVersion !== undefined && baseVersion !== this.activeVersion) {
+      throw new Error(`Concurrency Conflict: Attempted to replan based on version ${baseVersion}, but active version is ${this.activeVersion}`);
+    }
+
     const currentGraph = this.getGraph();
     
     // 1. Create an immutable snapshot of the new graph
@@ -126,10 +163,15 @@ export class ExecutionGraphEngine {
     nextGraph.updatedAt = new Date().toISOString();
     
     // 2. Validate structure
-    this.validateGraph([...nextGraph.nodes, ...newNodes], [...nextGraph.edges, ...newEdges]);
+    const preparedNewNodes: GraphNode[] = newNodes.map(n => ({
+      ...n,
+      state: n.state || "CREATED",
+      attempts: n.attempts || 0,
+    }));
+    this.validateGraph([...nextGraph.nodes, ...preparedNewNodes], [...nextGraph.edges, ...newEdges]);
     
     // 3. Mark old replaced nodes as TERMINATED (if they are redefined)
-    const newNodeIds = new Set(newNodes.map(n => n.id));
+    const newNodeIds = new Set(preparedNewNodes.map(n => n.id));
     for (const node of nextGraph.nodes) {
       if (newNodeIds.has(node.id) && !["COMPLETED", "FAILED"].includes(node.state || "")) {
         node.state = "TERMINATED";
@@ -137,14 +179,14 @@ export class ExecutionGraphEngine {
     }
 
     // Append new nodes and edges, filtering out superseded ones from being duplicated
-    nextGraph.nodes = nextGraph.nodes.filter(n => n.state !== "TERMINATED").concat(newNodes);
+    nextGraph.nodes = nextGraph.nodes.filter(n => n.state !== "TERMINATED").concat(preparedNewNodes);
     nextGraph.edges.push(...newEdges);
     
     // 4. Save new immutable version
     this.graphs.set(nextVersion, nextGraph);
     this.activeVersion = nextVersion;
 
-    const newVersion = {
+    const newVersion: PlanVersion = {
       version: nextVersion,
       graphId: nextGraph.id,
       createdAt: new Date().toISOString(),
@@ -168,6 +210,9 @@ export class ExecutionGraphEngine {
     if (!node) throw new Error(`Node ${nodeId} not found`);
 
     if (state === "RUNNING") {
+      if (node.state === "RUNNING") {
+        throw new Error(`Concurrency Conflict: Node ${nodeId} is already RUNNING`);
+      }
       const activeFrontier = this.getFrontier();
       const isActive = activeFrontier.some(n => n.id === nodeId);
       if (!isActive && node.state !== "QUEUED" && node.state !== "CREATED" && node.state !== "PAUSED") {
@@ -190,17 +235,86 @@ export class ExecutionGraphEngine {
     this.emit(eventName, { nodeId, state, output, error, version: graph.version });
   }
 
-  public evaluateCondition(condition: string, context: Record<string, any>): boolean {
-    return ConditionEvaluator.evaluate(condition, context);
+  /**
+   * Authoritative recording of verified observations from tool executions, verification, or system monitors.
+   * Observations create trusted OBSERVED_FACT entries that cannot be spoofed by AI claims.
+   */
+  public recordObservation(provenance: ObservationProvenance, data: Record<string, any>): void {
+    const obsRecord: GraphObservationRecord = {
+      id: crypto.randomUUID(),
+      provenance,
+      data,
+      recordedAt: new Date().toISOString(),
+    };
+    this.observations.push(obsRecord);
+
+    // Recursively flatten observation data into authoritative facts
+    const flattenAndStore = (prefix: string, obj: any) => {
+      if (obj === null || obj === undefined) return;
+      if (typeof obj === "object" && !Array.isArray(obj)) {
+        for (const [k, v] of Object.entries(obj)) {
+          const path = prefix ? `${prefix}.${k}` : k;
+          this.facts.set(path, {
+            key: path,
+            value: v,
+            kind: "OBSERVED_FACT",
+            provenance,
+            recordedAt: new Date().toISOString(),
+          });
+          flattenAndStore(path, v);
+        }
+      } else {
+        this.facts.set(prefix, {
+          key: prefix,
+          value: obj,
+          kind: "OBSERVED_FACT",
+          provenance,
+          recordedAt: new Date().toISOString(),
+        });
+      }
+    };
+
+    flattenAndStore("", data);
+
+    const graph = this.getGraph();
+    this.store.saveObservation(graph.id, obsRecord);
+    this.emit("graph.observation.recorded", { observation: obsRecord });
   }
 
-  public updateGraphContext(key: string, value: any, provenance: string) {
-    this.graphContext[key] = value;
+  /**
+   * Agent context updates or claims. If not from a verified system source,
+   * these are treated as AGENT_CLAIM rather than OBSERVED_FACT.
+   */
+  public updateGraphContext(key: string, value: any, provenance?: string) {
+    this.facts.set(key, {
+      key,
+      value,
+      kind: provenance?.startsWith("TOOL_") ? "OBSERVED_FACT" : "AGENT_CLAIM",
+      provenance: provenance ? { source: "SYSTEM_MONITOR", timestamp: new Date().toISOString() } : undefined,
+      recordedAt: new Date().toISOString(),
+    });
     this.emit("graph.context.updated", { key, value, provenance });
   }
 
   public getGraphContext(): Record<string, any> {
-    return { ...this.graphContext };
+    const context: Record<string, any> = {};
+    for (const [k, fact] of this.facts.entries()) {
+      context[k] = fact.value;
+    }
+    return context;
+  }
+
+  public getFacts(): GraphFact[] {
+    return Array.from(this.facts.values());
+  }
+
+  public getObservations(): GraphObservationRecord[] {
+    return [...this.observations];
+  }
+
+  public evaluateCondition(condition: string, contextOverrides: Record<string, any> = {}): boolean {
+    const context = { ...this.getGraphContext(), ...contextOverrides };
+    return ConditionEvaluator.evaluate(condition, context);
   }
 
   public getNextNodes(nodeId: string, contextOverrides: Record<string, any> = {}): GraphNode[] {
@@ -211,7 +325,7 @@ export class ExecutionGraphEngine {
     const outgoingEdges = graph.edges.filter(e => e.from === nodeId);
     const nextNodes: GraphNode[] = [];
 
-    const context = { ...this.graphContext, ...contextOverrides };
+    const context = { ...this.getGraphContext(), ...contextOverrides };
 
     for (const edge of outgoingEdges) {
       let conditionMet = true;
@@ -263,7 +377,7 @@ export class ExecutionGraphEngine {
 
     if (activeNodes.length === 0) {
       const targets = new Set(graph.edges.map(e => e.to));
-      activeNodes = graph.nodes.filter(n => !targets.has(n.id) && n.state === "CREATED");
+      activeNodes = graph.nodes.filter(n => !targets.has(n.id) && (n.state === "CREATED" || n.state === undefined));
     }
     
     return activeNodes;
@@ -293,17 +407,18 @@ export class ExecutionGraphEngine {
   }
 
   public getEscalation(escalationId: string): EscalationRequest | undefined {
-    return this.escalations.get(escalationId);
+    return this.escalations.get(escalationId) || (this.store.getEscalation(escalationId) ?? undefined);
   }
 
   public resolveEscalation(escalationId: string, resolution: "RESOLVED" | "REJECTED", userId: string) {
-    const req = this.escalations.get(escalationId);
+    const req = this.getEscalation(escalationId);
     if (!req) throw new Error("Escalation not found");
     
     req.status = resolution;
     req.resolvedAt = new Date().toISOString();
     req.resolvedByUserId = userId;
     
+    this.escalations.set(req.id, req);
     this.store.saveEscalation(req);
 
     if (resolution === "RESOLVED") {
@@ -315,5 +430,46 @@ export class ExecutionGraphEngine {
     }
 
     this.emit("graph.escalation.resolved", { escalation: req });
+  }
+
+  /**
+   * Crash recovery: restores an execution graph engine from durable store.
+   */
+  public static loadFromStore(store: IGraphStore, graphId: string): ExecutionGraphEngine {
+    const latest = store.getLatestGraph(graphId);
+    if (!latest) throw new Error(`No execution graph found in store for ID: ${graphId}`);
+
+    const engine = new ExecutionGraphEngine({
+      tenantId: latest.tenantId,
+      missionId: latest.missionId,
+      taskId: latest.taskId,
+      initialGraph: latest,
+      store,
+    });
+
+    // Replay versions
+    const versions = store.getVersions(graphId);
+    if (versions.length > 0) {
+      engine.planVersions = [...versions];
+      for (const v of versions) {
+        const g = store.getGraph(graphId, v.version);
+        if (g) engine.graphs.set(v.version, g);
+      }
+      engine.activeVersion = latest.version;
+    }
+
+    // Replay observations
+    const observations = store.getObservations(graphId);
+    for (const obs of observations) {
+      engine.recordObservation(obs.provenance, obs.data);
+    }
+
+    // Replay escalations
+    const escalations = store.listEscalations(graphId);
+    for (const esc of escalations) {
+      engine.escalations.set(esc.id, esc);
+    }
+
+    return engine;
   }
 }

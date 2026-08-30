@@ -9,6 +9,10 @@ export interface IGraphStore {
   saveVersion(version: PlanVersion): void;
   getVersions(graphId: string): PlanVersion[];
   saveEscalation(escalation: EscalationRequest): void;
+  getEscalation(escalationId: string): EscalationRequest | null;
+  listEscalations(graphId?: string): EscalationRequest[];
+  saveObservation(graphId: string, observation: any): void;
+  getObservations(graphId: string): any[];
 }
 
 export class FileGraphStore implements IGraphStore {
@@ -49,7 +53,10 @@ export class FileGraphStore implements IGraphStore {
     if (fs.existsSync(file)) {
       versions = JSON.parse(fs.readFileSync(file, "utf-8"));
     }
-    versions.push(version);
+    // Prevent duplicate versions in history
+    if (!versions.some(v => v.version === version.version)) {
+      versions.push(version);
+    }
     fs.writeFileSync(file, JSON.stringify(versions, null, 2), "utf-8");
   }
 
@@ -62,5 +69,51 @@ export class FileGraphStore implements IGraphStore {
   public saveEscalation(escalation: EscalationRequest): void {
     const file = path.join(this.storageDir, `escalation_${escalation.id}.json`);
     fs.writeFileSync(file, JSON.stringify(escalation, null, 2), "utf-8");
+  }
+
+  public getEscalation(escalationId: string): EscalationRequest | null {
+    const file = path.join(this.storageDir, `escalation_${escalationId}.json`);
+    if (!fs.existsSync(file)) return null;
+    return JSON.parse(fs.readFileSync(file, "utf-8"));
+  }
+
+  public listEscalations(graphId?: string): EscalationRequest[] {
+    const files = fs.readdirSync(this.storageDir).filter(f => f.startsWith("escalation_") && f.endsWith(".json"));
+    const escalations: EscalationRequest[] = [];
+    for (const f of files) {
+      try {
+        const esc = JSON.parse(fs.readFileSync(path.join(this.storageDir, f), "utf-8"));
+        if (!graphId || esc.graphId === graphId) {
+          escalations.push(esc);
+        }
+      } catch {
+        // ignore corrupted files
+      }
+    }
+    return escalations;
+  }
+
+  public saveObservation(graphId: string, observation: any): void {
+    const file = path.join(this.storageDir, `${graphId}_observations.json`);
+    let observations: any[] = [];
+    if (fs.existsSync(file)) {
+      try {
+        observations = JSON.parse(fs.readFileSync(file, "utf-8"));
+      } catch {
+        observations = [];
+      }
+    }
+    observations.push(observation);
+    fs.writeFileSync(file, JSON.stringify(observations, null, 2), "utf-8");
+  }
+
+  public getObservations(graphId: string): any[] {
+    const file = path.join(this.storageDir, `${graphId}_observations.json`);
+    if (!fs.existsSync(file)) return [];
+    try {
+      return JSON.parse(fs.readFileSync(file, "utf-8"));
+    } catch {
+      return [];
+    }
   }
 }

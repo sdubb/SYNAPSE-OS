@@ -151,10 +151,6 @@ export function createSimulateBranchTool(simEngine: SimulationEngine, getTwinFn:
         blastRadius,
         affectedEntities,
         constraintViolations: Math.round(avgViolations),
-        rollbackAvailable: true,
-        rollbackStrategy: "Standard twin restore available",
-        confidence: iterations >= 50 ? 0.95 : 0.80,
-        recommendedBranch: failureRate > 5 ? "staging_first" : "proceed",
         simulationMethod: method,
         duration: durationMs
       }, null, 2);
@@ -172,13 +168,14 @@ export function createReplanTool(engine: ExecutionGraphEngine): any {
         failedNodeId: { type: "string" },
         reason: { type: "string" },
         newNodes: { type: "array" },
-        newEdges: { type: "array" }
+        newEdges: { type: "array" },
+        baseVersion: { type: "number", description: "The graph version you are modifying. Protects against concurrent replans." }
       },
-      required: ["failedNodeId", "reason", "newNodes", "newEdges"]
+      required: ["failedNodeId", "reason", "newNodes", "newEdges", "baseVersion"]
     },
     async execute(input: any, _context: any) {
       try {
-        const plan = engine.replan(input.newNodes || [], input.newEdges || [], input.reason);
+        const plan = engine.replan(input.newNodes || [], input.newEdges || [], input.reason, input.baseVersion);
         return `Replan accepted. Graph version advanced to ${plan.version}.`;
       } catch (err: any) {
         return `Failed to replan: ${err.message}`;

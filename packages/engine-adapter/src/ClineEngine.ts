@@ -133,6 +133,23 @@ export class ClineEngine {
           throw new Error(`ToolGateway Execution Failed: ${result.error}`);
         }
 
+        if (this.graphEngine) {
+          const obsData = typeof result.output === "object" && result.output !== null
+            ? (result.output as Record<string, any>)
+            : { result: result.output, success: result.success };
+
+          this.graphEngine.recordObservation({
+            source: "TOOL_EXECUTION",
+            toolName,
+            callId,
+            runId: pending.context.runId,
+            attemptId: pending.context.attemptId,
+            evidenceId: result.evidenceId,
+            auditEventId: result.auditEventId,
+            timestamp: new Date().toISOString(),
+          }, obsData);
+        }
+
         if (toolName === "team_spawn_teammate" && this.workforceEngine) {
           const spawnedAgentId = (result.output as any)?.agentId || `spawned-${crypto.randomUUID()}`;
           this.workforceEngine.registerSpawn({

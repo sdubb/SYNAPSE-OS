@@ -108,7 +108,10 @@ describe("SYNAPSE-OS Dynamic Execution Graph Integration", () => {
     expect(graph.edges.length).toBe(7);
   });
 
-  test("Simulation: Branch evaluation recommends safe paths", async () => {
+  test("Simulation: Branch evaluation does not mutate production twin", async () => {
+    // Snapshot original twin
+    const originalTwinState = JSON.stringify(twin);
+
     const simulateTool = getGraphTools(graphEngine, simEngine, getTwinFn).find((t: any) => t.name === "simulate_execution_branch");
     const simResultStr = await simulateTool.execute({
       targetNodeId: "modify_code",
@@ -126,9 +129,12 @@ describe("SYNAPSE-OS Dynamic Execution Graph Integration", () => {
     
     const simResult = JSON.parse(simResultStr as string);
     expect(simResult.outcomes.failureRate).toBeDefined();
-    expect(simResult.recommendedBranch).toContain("staging_first");
     expect(simResult.blastRadius).toBeGreaterThanOrEqual(1);
     expect(simResult.affectedEntities).toBeGreaterThanOrEqual(1);
+
+    // Verify isolation
+    const postTwinState = JSON.stringify(twin);
+    expect(postTwinState).toEqual(originalTwinState);
   });
 
   test("Graph Transition: Path changes dynamically based on context", () => {
@@ -150,10 +156,11 @@ describe("SYNAPSE-OS Dynamic Execution Graph Integration", () => {
 
   test("Replanning: Fallback generates a new version", async () => {
     const replanTool = getGraphTools(graphEngine, simEngine, getTwinFn).find((t: any) => t.name === "propose_replan");
-    
+    const currentActiveVersion = graphEngine.getGraph().version;
     const result = await replanTool.execute({
       failedNodeId: "verify",
-      reason: "Tests failed after database modification",
+      reason: "Verification failed on production. Falling back to staging.",
+      baseVersion: currentActiveVersion,
       newNodes: [
         { id: "rollback_db", type: "ACTION", title: "Rollback Database" },
         { id: "replan_eval", type: "ACTION", title: "Evaluate alternative approach" }
@@ -218,6 +225,34 @@ describe("SYNAPSE-OS Dynamic Execution Graph Integration", () => {
     // Ensure the V4 node is only in V4
     expect(v1After.nodes.find(n => n.id === "v4_node")).toBeUndefined();
     expect(v4.nodes.find(n => n.id === "v4_node")).toBeDefined();
+  });
+
+  test("Concurrency: Concurrent replans are safely rejected", () => {
+    const currentVersion = graphEngine.getGraph().version;
+    
+    // First replan succeeds
+    graphEngine.replan([{ id: "safe_node", type: "ACTION", title: "Safe" }], [], "First replan", currentVersion);
+    
+    // Second replan with stale version fails
+    expect(() => {
+      graphEngine.replan([{ id: "conflict_node", type: "ACTION", title: "Conflict" }], [], "Concurrent replan", currentVersion);
+    }).toThrow(/Concurrency Conflict/);
+  });
+
+  test("Security: Safe DSL rejects prototype pollution and code execution", () => {
+    const context = { api: { status: 200 } };
+    const { ConditionEvaluator } = require("../packages/control-plane/src/graph/ConditionEvaluator.ts");
+    
+    // Prototype pollution attempt
+    expect(ConditionEvaluator.evaluate("constructor.prototype.hacked == true", context)).toBe(false);
+    expect(ConditionEvaluator.evaluate("__proto__.polluted == true", context)).toBe(false);
+
+    // Code execution attempt
+    expect(ConditionEvaluator.evaluate("process.exit(1)", context)).toBe(false);
+    expect(ConditionEvaluator.evaluate("require('fs')", context)).toBe(false);
+    
+    // Legitimate evaluation works
+    expect(ConditionEvaluator.evaluate("api.status == 200", context)).toBe(true);
   });
 });
 

@@ -22,10 +22,16 @@ export class WorkforceGraphEngine {
   }
 
   public registerSpawn(node: Omit<WorkforceNode, "status" | "createdAt" | "updatedAt">): WorkforceNode {
+    const existing = this.nodes.get(node.agentId);
+    if (existing && existing.status === "ACTIVE") {
+      // Idempotent return without duplicate event or mutation
+      return existing;
+    }
+
     const fullNode: WorkforceNode = {
       ...node,
       status: "ACTIVE",
-      createdAt: new Date().toISOString(),
+      createdAt: existing?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
     this.nodes.set(node.agentId, fullNode);
@@ -48,6 +54,37 @@ export class WorkforceGraphEngine {
   }
   
   public getWorkforce(): WorkforceNode[] {
-      return Array.from(this.nodes.values());
+    return Array.from(this.nodes.values());
+  }
+
+  public getAgent(agentId: string): WorkforceNode | undefined {
+    return this.nodes.get(agentId);
+  }
+
+  /**
+   * Reconciles workforce with actual active runtime sessions.
+   * Marks any missing agents as TERMINATED to prevent ghost/orphan agents after crashes.
+   */
+  public reconcile(activeAgentIds: string[]): { active: number; terminated: number } {
+    const activeSet = new Set(activeAgentIds);
+    let terminatedCount = 0;
+    let activeCount = 0;
+
+    for (const [id, node] of this.nodes.entries()) {
+      if (node.status === "ACTIVE" && !activeSet.has(id)) {
+        node.status = "TERMINATED";
+        node.updatedAt = new Date().toISOString();
+        terminatedCount++;
+        this.eventEmitter({
+          type: "workforce.agent.reconciled_terminated",
+          agentId: id,
+          reason: "Agent was missing from active runtimes during reconciliation",
+        });
+      } else if (node.status === "ACTIVE") {
+        activeCount++;
+      }
+    }
+
+    return { active: activeCount, terminated: terminatedCount };
   }
 }
