@@ -1,6 +1,6 @@
 # SYNAPSE-OS — Operator Backend Contract
 
-> Auto-discovered from source. Last verified: 2026-08-30
+> Auto-discovered from source. Last verified: 2026-08-30 (forensic integration audit)
 
 ## Overview
 
