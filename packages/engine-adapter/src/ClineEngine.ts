@@ -8,6 +8,7 @@ import { ClineWorkspace } from "./ClineWorkspace.js";
 import { ClineTeam, type CreateTeamOptions } from "./ClineTeam.js";
 import { executeStart, executePause, executeResume, executeAbort, executeStop, executeRestart } from "./lifecycle/index.js";
 import { ClineSessionNotFoundError, ClineExecutionError, ClineCheckpointError } from "./errors/ClineEngineError.js";
+import { SynapseMcpBridge, type McpToolContext } from "./mcp/SynapseMcpBridge.js";
 import type { SynapseEventEnvelope } from "@synapse/contracts";
 import type { SessionCompletionResult } from "./ClineSession.js";
 import { getGraphTools } from "./graph/GraphTools.js";
@@ -90,6 +91,7 @@ export class ClineEngine {
   public simEngine?: any;
   public getTwinFn?: (env: string) => any;
   public workforceEngine?: any;
+  public mcpBridge?: SynapseMcpBridge;
   
   // Cache to store authorization context between requestToolApproval and actual execution
   private readonly pendingToolCalls = new Map<string, {
@@ -217,6 +219,15 @@ export class ClineEngine {
       this.isInitialized = true;
       this.initError = undefined;
       this.initializedAt = new Date();
+
+      // Initialize MCP bridge — exposes governed capabilities through Cline's native MCP pathway
+      this.mcpBridge = new SynapseMcpBridge({
+        toolGateway: this.toolGateway,
+        auditEngine: this.toolGateway.auditEngine,
+        eventBus: this.toolGateway.eventBus,
+        graphEngine: this.graphEngine,
+        defaultWorkspaceRoot: this.options.defaultWorkspaceDirectory,
+      });
     } catch (err: unknown) {
       this.initError = err instanceof Error ? err.message : String(err);
       this.isInitialized = false;
