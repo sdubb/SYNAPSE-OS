@@ -303,11 +303,22 @@ describe("SYNAPSE-OS LIVE RUNTIME VALIDATION & HARDENING", () => {
     expect(graphEngine.evaluateCondition("api.healthy == false")).toBe(true);
     expect(graphEngine.evaluateCondition("database.available == true")).toBe(true);
 
-    // 3. AI attempts to submit an unverified claim
+    // 3. AI attempts to submit an unverified claim that contradicts the observed fact
     graphEngine.updateGraphContext("api.status", 200, "AGENT_CLAIM");
+
+    // The OBSERVED_FACT (status=500) must take priority over the AGENT_CLAIM (status=200)
+    // in condition evaluation because observed facts are applied AFTER agent claims
+    expect(graphEngine.evaluateCondition("api.status == 500")).toBe(true);
+    expect(graphEngine.evaluateCondition("api.status == 200")).toBe(false);
+
+    // Both facts should exist but with different kinds
     const facts = graphEngine.getFacts();
-    const apiFact = facts.find(f => f.key === "api.status");
-    expect(apiFact?.kind).toBe("AGENT_CLAIM");
+    const observedFact = facts.find(f => f.key === "api.status" && f.kind === "OBSERVED_FACT");
+    const agentClaim = facts.find(f => f.key === "api.status" && f.kind === "AGENT_CLAIM");
+    expect(observedFact).toBeDefined();
+    expect(observedFact?.value).toBe(500);
+    expect(agentClaim).toBeDefined();
+    expect(agentClaim?.value).toBe(200);
 
     // Context contains provenance
     const observations = graphEngine.getObservations();
@@ -337,7 +348,10 @@ describe("SYNAPSE-OS LIVE RUNTIME VALIDATION & HARDENING", () => {
       edges: [{ from: "deploy_node", to: "verify_node" }],
     }, {});
 
-    // Node fails in production
+    // Execute deploy_node to COMPLETED and verify_node to RUNNING, then FAILED in production
+    graphEngine.updateNodeState("deploy_node", "RUNNING");
+    graphEngine.updateNodeState("deploy_node", "COMPLETED");
+    graphEngine.updateNodeState("verify_node", "RUNNING");
     graphEngine.updateNodeState("verify_node", "FAILED", undefined, "Integration tests failed");
     const v2Snapshot = JSON.stringify(graphEngine.getGraph(2));
 
@@ -443,10 +457,10 @@ describe("SYNAPSE-OS LIVE RUNTIME VALIDATION & HARDENING", () => {
     expect(esc.status).toBe("PENDING");
     expect(graphEngine.getNode("step_2_risk")?.state).toBe("BLOCKED");
 
-    // 2. Attempting to execute BLOCKED node throws frontier violation
+    // 2. Attempting to execute BLOCKED node throws error
     expect(() => {
       graphEngine.updateNodeState("step_2_risk", "RUNNING");
-    }).toThrow(/cannot be executed. It is not in the active frontier/);
+    }).toThrow(/cannot be executed|Invalid state transition/);
 
     // 3. Operator resolves escalation
     graphEngine.resolveEscalation(esc.id, "RESOLVED", "operator-admin-01");
@@ -535,7 +549,7 @@ describe("SYNAPSE-OS LIVE RUNTIME VALIDATION & HARDENING", () => {
     graphEngine.updateNodeState("concurrent_node", "RUNNING");
     expect(() => {
       graphEngine.updateNodeState("concurrent_node", "RUNNING");
-    }).toThrow(/already RUNNING/);
+    }).toThrow(/already RUNNING|Invalid state transition/);
   });
 
   // ============================================================

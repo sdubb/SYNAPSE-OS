@@ -1,3 +1,4 @@
+import path from "node:path";
 import { PolicyEngine } from "@synapse/policy-engine";
 import { SafetyEngine } from "@synapse/safety-engine";
 import { WorkspaceEnforcer } from "./WorkspaceEnforcer.js";
@@ -34,6 +35,30 @@ export class SafetyPolicyPipeline {
         remediation: "Specify a valid tenantId in the execution context.",
         riskLevel: "CRITICAL",
       };
+    }
+
+    if (context.workspaceRoot && context.tenantId) {
+      const pathKeys = ["path", "filePath", "targetFile", "TargetFile", "file", "AbsolutePath", "destination", "dest", "source", "directory", "cwd", "outputFile", "scriptPath", "SearchPath", "SearchDirectory", "DirectoryPath", "Cwd"];
+      const extractedPaths: string[] = [];
+      for (const key of pathKeys) {
+        if (typeof context.toolArguments[key] === "string") {
+          extractedPaths.push(context.toolArguments[key] as string);
+        }
+      }
+      
+      const normalizedRoot = path.resolve(context.workspaceRoot);
+      for (const p of extractedPaths) {
+        const normalizedP = path.resolve(context.workspaceRoot, p);
+        if (!normalizedP.startsWith(normalizedRoot)) {
+          return {
+            authorized: false,
+            decision: "BLOCK",
+            reason: `Strict tenant isolation violation: Path '${p}' escapes the tenant workspace root.`,
+            remediation: "Ensure all file operations remain strictly within the assigned tenant's isolated workspace",
+            riskLevel: "CRITICAL",
+          };
+        }
+      }
     }
 
     if (context.workspaceRoot) {
@@ -212,8 +237,12 @@ export class SafetyPolicyPipeline {
   }
 
   private extractFilePath(args: Record<string, unknown>): string | null {
-    const directPath = args["path"] || args["filePath"] || args["targetFile"] || args["TargetFile"] || args["file"];
-    if (typeof directPath === "string") return directPath;
+    const keys = ["path", "filePath", "targetFile", "TargetFile", "file", "AbsolutePath", "destination", "dest", "source", "directory", "cwd", "outputFile", "scriptPath", "SearchPath", "SearchDirectory", "DirectoryPath", "Cwd", "CommandLine"];
+    for (const key of keys) {
+      if (typeof args[key] === "string") {
+        return args[key] as string;
+      }
+    }
     return null;
   }
 

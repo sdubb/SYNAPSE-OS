@@ -116,6 +116,13 @@ export class ConditionEvaluator {
     if (str.startsWith('"') && str.endsWith('"')) return str.slice(1, -1);
 
     // Otherwise, treat as path
-    return str.split('.').reduce((acc, part) => (acc && acc[part] !== undefined) ? acc[part] : undefined, context);
+    const BLOCKED_PROPERTIES = new Set(['__proto__', 'constructor', 'prototype', 'toString', 'valueOf', 'hasOwnProperty']);
+    const parts = str.split('.');
+    for (const part of parts) {
+      if (BLOCKED_PROPERTIES.has(part)) {
+        return undefined;
+      }
+    }
+    return parts.reduce((acc, part) => (acc && typeof acc === 'object' && Object.hasOwn(acc, part) && acc[part] !== undefined) ? acc[part] : undefined, context as any);
   }
 }

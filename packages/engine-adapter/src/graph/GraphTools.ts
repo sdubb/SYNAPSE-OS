@@ -45,10 +45,10 @@ export function createSubmitPlanTool(engine: ExecutionGraphEngine): any {
     async execute(input: any, _context: any) {
       // Very basic validation/integration
       try {
-        const plan = engine.replan(input.nodes || [], input.edges || [], "Initial plan submitted by Cline");
+        const plan = engine.replan(input.nodes || [], input.edges || [], "Initial plan submitted by Cline", engine.getGraph().version);
         return `Plan successfully submitted and persisted as version ${plan.version}. Synapse is now governing this execution graph.`;
       } catch (err: any) {
-        return `Failed to submit plan: ${err.message}`;
+        throw new Error(`Failed to submit plan: ${err.message}`);
       }
     }
   };
@@ -84,7 +84,7 @@ export function createSimulateBranchTool(simEngine: SimulationEngine, getTwinFn:
     async execute(input: any, _context: any) {
       const twin = getTwinFn(input.environment);
       if (!twin) {
-        return JSON.stringify({ error: "SIMULATION_UNAVAILABLE", reason: `No appropriate twin/world model exists for environment: ${input.environment}` });
+        throw new Error(`SIMULATION_UNAVAILABLE: No twin/world model for environment: ${input.environment}`);
       }
 
       const builder = simEngine.createScenarioBuilder()
@@ -147,7 +147,7 @@ export function createSimulateBranchTool(simEngine: SimulationEngine, getTwinFn:
           successRate: `${100 - failureRate}%`,
           failureRate: `${failureRate}%`
         },
-        riskScore: avgViolations > 0 ? 0.8 : 0.1,
+        riskScore: Math.min(1.0, (failureRate / 100) * 0.6 + (avgViolations / Math.max(1, iterations)) * 0.4),
         blastRadius,
         affectedEntities,
         constraintViolations: Math.round(avgViolations),
@@ -178,7 +178,7 @@ export function createReplanTool(engine: ExecutionGraphEngine): any {
         const plan = engine.replan(input.newNodes || [], input.newEdges || [], input.reason, input.baseVersion);
         return `Replan accepted. Graph version advanced to ${plan.version}.`;
       } catch (err: any) {
-        return `Failed to replan: ${err.message}`;
+        throw new Error(`Failed to replan: ${err.message}`);
       }
     }
   };

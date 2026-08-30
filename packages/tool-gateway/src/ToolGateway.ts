@@ -52,7 +52,7 @@ export class ToolGateway {
   private readonly pipeline: SafetyPolicyPipeline;
   private readonly authorizationTokenTtlMs: number;
   /** Track consumed authorization tokens to prevent replay */
-  private readonly consumedTokens = new Set<string>();
+  private readonly consumedTokens = new Map<string, number>();
 
   constructor(options?: ToolGatewayOptions) {
     this.policyEngine = options?.policyEngine ?? new PolicyEngine();
@@ -168,11 +168,19 @@ export class ToolGateway {
   /**
    * Consume (invalidate) an authorization token after successful execution.
    */
-  private consumeAuthorizationToken(tokenId: string): void {
-    this.consumedTokens.add(tokenId);
+  private consumeAuthorizationToken(token: AuthorizationToken): void {
+    const now = Date.now();
+    for (const [id, expiresAt] of this.consumedTokens.entries()) {
+      if (now > expiresAt) {
+        this.consumedTokens.delete(id);
+      }
+    }
+
+    this.consumedTokens.set(token.tokenId, token.expiresAt);
+
     // Prevent memory leak: periodically clean up old tokens
     if (this.consumedTokens.size > 10_000) {
-      const iter = this.consumedTokens.values();
+      const iter = this.consumedTokens.keys();
       for (let i = 0; i < 5_000; i++) {
         const val = iter.next();
         if (val.done) break;
@@ -522,7 +530,7 @@ export class ToolGateway {
       riskLevel = authorizationToken.policyVersion ? riskLevel : "LOW";
 
       // Consume the token to prevent replay
-      this.consumeAuthorizationToken(authorizationToken.tokenId);
+      this.consumeAuthorizationToken(authorizationToken);
     }
 
     const start = Date.now();

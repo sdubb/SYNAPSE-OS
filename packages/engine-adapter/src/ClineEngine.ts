@@ -129,14 +129,12 @@ export class ClineEngine {
           pending.token
         );
 
-        if (!result.success) {
-          throw new Error(`ToolGateway Execution Failed: ${result.error}`);
-        }
-
         if (this.graphEngine) {
-          const obsData = typeof result.output === "object" && result.output !== null
-            ? (result.output as Record<string, any>)
-            : { result: result.output, success: result.success };
+          const obsData = !result.success
+            ? { success: false, error: result.error }
+            : (typeof result.output === "object" && result.output !== null
+              ? (result.output as Record<string, any>)
+              : { result: result.output, success: result.success });
 
           this.graphEngine.recordObservation({
             source: "TOOL_EXECUTION",
@@ -148,6 +146,10 @@ export class ClineEngine {
             auditEventId: result.auditEventId,
             timestamp: new Date().toISOString(),
           }, obsData);
+        }
+
+        if (!result.success) {
+          throw new Error(`ToolGateway Execution Failed: ${result.error}`);
         }
 
         if (toolName === "team_spawn_teammate" && this.workforceEngine) {
@@ -366,6 +368,17 @@ export class ClineEngine {
         },
       });
 
+      // Cleanup pending tool calls if unbounded growth
+      if (this.pendingToolCalls.size > 1000) {
+        const now = Date.now();
+        for (const [id, pending] of this.pendingToolCalls.entries()) {
+          const expiresAt = pending.token.expiresAt ? new Date(pending.token.expiresAt).getTime() : 0;
+          if (expiresAt > 0 && expiresAt < now) {
+            this.pendingToolCalls.delete(id);
+          }
+        }
+      }
+
       if (session) {
         session.recordAuthorizationToken(callId, authResult.authorizationToken);
       }
@@ -467,6 +480,7 @@ export class ClineEngine {
           enableAgentTeams: true,
           cwd: options.cwd,
           workspaceRoot: options.workspacePath || options.cwd,
+          toolPolicies: { "*": { autoApprove: false } },
         } as any,
         localRuntime: {
           extraTools: this.graphEngine ? getGraphTools(this.graphEngine, this.simEngine, this.getTwinFn ?? ((_env: string) => null)) : []
