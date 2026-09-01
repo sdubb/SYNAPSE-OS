@@ -550,23 +550,36 @@ export function MissionDetailPage() {
 
             <div className="space-y-3 text-xs">
               <div>
-                <span className="text-[10px] font-mono text-slate-500 block">CURRENT THOUGHT / INTENT</span>
+                <span className="text-[10px] font-mono text-slate-500 block">MISSION OBJECTIVE</span>
                 <p className="text-slate-200 font-medium mt-0.5">
-                  Evaluating table lock contention before executing partition migration.
+                  {(session as any)?.objective || (session as any)?.title || 'No objective defined'}
                 </p>
               </div>
               <div>
-                <span className="text-[10px] font-mono text-slate-500 block">DECISION & STRATEGY</span>
+                <span className="text-[10px] font-mono text-slate-500 block">CURRENT STATUS</span>
                 <p className="text-slate-300 font-mono mt-0.5">
-                  Requesting Monte Carlo simulation (50 iterations) on isolated twin.
+                  {missionStatus === 'active'
+                    ? `Executing — ${nodes.filter((n: any) => n.state === 'COMPLETED').length}/${nodes.length} tasks completed`
+                    : missionStatus === 'awaiting_approval'
+                    ? 'Waiting for human approval to proceed'
+                    : missionStatus === 'completed'
+                    ? 'Mission completed successfully'
+                    : missionStatus === 'failed'
+                    ? 'Mission encountered an error'
+                    : missionStatus === 'paused'
+                    ? 'Mission paused by operator'
+                    : `Status: ${missionStatus}`
+                  }
                 </p>
               </div>
-              <div>
-                <span className="text-[10px] font-mono text-slate-500 block">NEXT ACTION</span>
-                <p className="text-slate-400 font-mono mt-0.5">
-                  Interpret simulation risk score and propose replan if failure &gt; 10%.
-                </p>
-              </div>
+              {nodes.length > 0 && (
+                <div>
+                  <span className="text-[10px] font-mono text-slate-500 block">NEXT STEP</span>
+                  <p className="text-slate-400 font-mono mt-0.5">
+                    {nodes.find((n: any) => n.state === 'RUNNING' || n.state === 'QUEUED')?.title || 'All steps completed'}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 
