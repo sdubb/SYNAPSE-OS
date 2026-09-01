@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Activity, Users, AlertTriangle, Clock, ArrowRight, RefreshCw,
   Cpu, Zap, ShieldCheck, Pause, Play, Square, Eye, CheckCircle2,
-  XCircle, Brain, Terminal, ShieldAlert, Sparkles, Database, Wifi
+  XCircle, Brain, Terminal, ShieldAlert, Sparkles, Database, Wifi, Plus
 } from 'lucide-react';
 import { useSessions } from '@/hooks/useSessions';
 import { useTasks } from '@/hooks/useTasks';
@@ -13,6 +13,7 @@ import { useAuditLogs } from '@/hooks/useAudit';
 import { useHealth } from '@/hooks/useHealth';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { NewMissionModal } from './NewMissionModal';
 import { cn } from '@/lib/utils';
 
 // ── Status Dot & Badge ─────────────────────────────────────
@@ -176,6 +177,7 @@ function MissionCard({ session, agent, latestAudit, pendingApprovals, onClick }:
 export function MissionsPage() {
   const navigate = useNavigate();
   const [selectedFilter, setSelectedFilter] = useState<'ALL' | 'ACTIVE' | 'WAITING' | 'FAILED' | 'COMPLETED'>('ALL');
+  const [isNewMissionOpen, setIsNewMissionOpen] = useState(false);
   const { data: sessions, isLoading: sessionsLoading, refetch: refetchSessions } = useSessions();
   const { data: tasks, isLoading: tasksLoading } = useTasks();
   const { data: agents, isLoading: agentsLoading } = useAgents();
@@ -208,6 +210,33 @@ export function MissionsPage() {
     if (selectedFilter === 'COMPLETED') return completedSessions.includes(s);
     return true;
   });
+
+  // ── Create Mission State ──────────────────────────────────────────
+  const [showCreateMission, setShowCreateMission] = useState(false);
+  const [missionGoal, setMissionGoal] = useState('');
+  const [isCreatingMission, setIsCreatingMission] = useState(false);
+  const [createError, setCreateError] = useState('');
+
+  const handleCreateMission = async () => {
+    if (!missionGoal.trim()) return;
+    setIsCreatingMission(true);
+    setCreateError('');
+    try {
+      const { apiClient } = await import('@/api/client');
+      const session = await apiClient.createSession({
+        title: missionGoal.trim(),
+        objective: missionGoal.trim(),
+      } as any);
+      setMissionGoal('');
+      setShowCreateMission(false);
+      refetchSessions();
+      navigate(`/missions/${session.id}`);
+    } catch (e: any) {
+      setCreateError(e.message || 'Failed to create mission. Please try again.');
+    } finally {
+      setIsCreatingMission(false);
+    }
+  };
 
   const agentMap = new Map((agents || []).map((a) => [a.id, a]));
   const auditRecords = auditData?.records || [];
@@ -265,6 +294,13 @@ export function MissionsPage() {
               <Database className="w-3 h-3" /> PostgreSQL Safe
             </span>
           </div>
+
+          <button
+            onClick={() => setIsNewMissionOpen(true)}
+            className="px-3.5 py-1.5 text-xs font-mono font-bold text-slate-950 bg-cyan-400 hover:bg-cyan-300 rounded-lg transition-colors flex items-center gap-1.5 shadow-md shadow-cyan-950/40 cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" /> New Mission
+          </button>
 
           <button
             onClick={() => { refetchSessions(); refetchApprovals(); }}
@@ -460,7 +496,10 @@ export function MissionsPage() {
           <EmptyState
             icon={<Activity className="w-8 h-8 text-slate-500" />}
             title="No missions match filter"
-            description="Change filter or start a new autonomous mission through the API or Command Palette (Ctrl+K)."
+            description="Start a new autonomous mission with natural language or choose from preset capability templates."
+            actionLabel="Launch Your First Mission"
+            onAction={() => setIsNewMissionOpen(true)}
+            actionIcon={<Plus className="w-4 h-4 mr-1.5" />}
           />
         ) : (
           <div className="space-y-3">
@@ -521,6 +560,15 @@ export function MissionsPage() {
           </div>
         </div>
       )}
+
+      {/* ── 7. New Mission Intent & Capability Modal ────────────────────── */}
+      <NewMissionModal
+        isOpen={isNewMissionOpen}
+        onClose={() => {
+          setIsNewMissionOpen(false);
+          refetchSessions();
+        }}
+      />
     </div>
   );
 }

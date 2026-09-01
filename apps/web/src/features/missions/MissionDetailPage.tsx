@@ -237,6 +237,8 @@ export function MissionDetailPage() {
   const [isEmergencyModalOpen, setIsEmergencyModalOpen] = useState(false);
   const [emergencyReason, setEmergencyReason] = useState('');
   const [isHaltRunning, setIsHaltRunning] = useState(false);
+  const [customInstruction, setCustomInstruction] = useState('');
+  const [isSendingInstruction, setIsSendingInstruction] = useState(false);
 
   // Derive active mission metrics
   const missionStatus = session?.status || 'active';
@@ -253,6 +255,22 @@ export function MissionDetailPage() {
   const missionSimulations = useMemo(() => {
     return (simulations || []).filter((s) => !id || (s as any).missionId === id || s.scenarioId?.includes(id));
   }, [simulations, id]);
+
+  const handleSendInstruction = async (textToSend?: string) => {
+    const text = (textToSend || customInstruction).trim();
+    if (!text || !id) return;
+    setIsSendingInstruction(true);
+    try {
+      await apiClient.sendInstruction(id, text);
+      success('Instruction Dispatched', `Cline Primary Brain received: "${text.slice(0, 45)}..."`);
+      setCustomInstruction('');
+      refetchSession();
+    } catch (e: any) {
+      error('Failed to Dispatch Instruction', e.message);
+    } finally {
+      setIsSendingInstruction(false);
+    }
+  };
 
   // Handle Controls
   const handlePause = async () => {
@@ -320,14 +338,8 @@ export function MissionDetailPage() {
     );
   }
 
-  // Generate synthetic nodes for DAG demo if not populated in session
-  const nodes = (session as any)?.nodes || [
-    { id: 'node-01', title: 'Inspect Schema & Locks', state: 'COMPLETED', agentId: 'cline-lead', tool: 'read_file' },
-    { id: 'node-02', title: 'Monte Carlo Simulation', state: 'COMPLETED', agentId: 'cline-lead', tool: 'simulate_branch' },
-    { id: 'node-03', title: 'Propose OCC Replan V2', state: 'COMPLETED', agentId: 'cline-lead', tool: 'propose_replan' },
-    { id: 'node-04', title: 'Apply Migration Phase 1', state: 'RUNNING', agentId: 'cline-lead', tool: 'execute_sql' },
-    { id: 'node-05', title: 'Data Integrity Audit', state: 'QUEUED', agentId: 'subagent-verifier', tool: 'verify_hash' },
-  ];
+  // Use real session data only — no synthetic fallback nodes
+  const nodes = (session as any)?.nodes || [];
 
   return (
     <div className="space-y-6">
@@ -394,7 +406,7 @@ export function MissionDetailPage() {
           <MiniExecutionGraph
             nodes={nodes}
             edges={[]}
-            frontierNodeIds={['node-04']}
+            frontierNodeIds={nodes.filter((n: any) => n.state === 'RUNNING' || n.state === 'QUEUED').map((n: any) => n.id)}
             selectedNodeId={selectedNode?.id}
             onSelectNode={(node) => setSelectedNode(node)}
           />
@@ -456,6 +468,66 @@ export function MissionDetailPage() {
                   );
                 })
               )}
+            </div>
+          </div>
+
+          {/* Operator Intervention & Human Guidance Console */}
+          <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Brain className="w-4 h-4 text-cyan-400" />
+                <h3 className="text-sm font-bold font-mono text-slate-200 uppercase tracking-wider">
+                  Human Operator Guidance & Interventions
+                </h3>
+              </div>
+              <span className="text-[10px] font-mono text-slate-500">
+                Direct Command Channel to Cline Lead Brain
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="Give instructions to Cline (e.g. 'Also run integration tests', 'Skip step 3')..."
+                value={customInstruction}
+                onChange={(e) => setCustomInstruction(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSendInstruction(); } }}
+                className="flex-1 px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-lg text-xs text-slate-200 outline-none focus:border-cyan-500 font-mono"
+              />
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => handleSendInstruction()}
+                disabled={isSendingInstruction || !customInstruction.trim()}
+                className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold shrink-0"
+              >
+                {isSendingInstruction ? 'Sending...' : 'Send to Cline'}
+              </Button>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap pt-1 text-[11px] font-mono text-slate-400">
+              <span>Quick Suggestions:</span>
+              <button
+                type="button"
+                onClick={() => handleSendInstruction('Run complete test suite and fix any failing tests')}
+                className="px-2 py-1 bg-slate-900 border border-slate-800 rounded text-cyan-300 hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                + Run Tests
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSendInstruction('Perform security vulnerability scan on modified files')}
+                className="px-2 py-1 bg-slate-900 border border-slate-800 rounded text-emerald-300 hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                + Security Scan
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSendInstruction('Propose OCC replan with alternative error-recovery branch')}
+                className="px-2 py-1 bg-slate-900 border border-slate-800 rounded text-purple-300 hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                + Propose Replan
+              </button>
             </div>
           </div>
         </div>
@@ -609,6 +681,31 @@ export function MissionDetailPage() {
                 <span>ev_sha256_{selectedNode.id}_9f82ab41</span>
                 <CopyButton text={`ev_sha256_${selectedNode.id}_9f82ab41`} label="Copy Hash" />
               </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  handleSendInstruction(`Skip task node ${selectedNode.id} and advance execution frontier`);
+                  setSelectedNode(null);
+                }}
+                className="w-1/2"
+              >
+                Skip This Task
+              </Button>
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => {
+                  handleSendInstruction(`Retry task node ${selectedNode.id} with refreshed context`);
+                  setSelectedNode(null);
+                }}
+                className="w-1/2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold"
+              >
+                Retry Task
+              </Button>
             </div>
           </div>
         </Dialog>

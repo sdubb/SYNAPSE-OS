@@ -128,7 +128,7 @@ async function runRealUserClineMissionAcceptance() {
   const collectedEvents: CollectedEvent[] = [];
 
   // ── Core Services ─────────────────────────────────────────────
-  const jwtService = new JwtService();
+  const jwtService = new JwtService({ secret: 'test_acceptance_jwt_secret_key_32_bytes!' });
   const auditEngine = new AuditEngine();
   const eventBus = new EventBus();
   const approvalEngine = new ApprovalEngine({ auditEngine, eventBus });

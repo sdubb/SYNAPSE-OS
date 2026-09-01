@@ -53,7 +53,7 @@ class SynapseApiClient {
   public getToken(): string | null { return this.token; }
   public getTenantId(): string { return this.tenantId; }
 
-  public async login(apiKeyOrUser: string = 'usr_admin_01') {
+  public async login(apiKeyOrUser: string) {
     const res = await this.request<{
       token: string;
       userId: string;

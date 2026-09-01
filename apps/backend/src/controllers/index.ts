@@ -124,30 +124,16 @@ export class AppController {
     (this.repos.providers as any).db = db;
 
     // Seed default models for the default tenant
-    const tid = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
-    this.repos.providers.seedDefaults(tid).catch(() => {});
-
-    // Seed default models for the tenant
-    this.repos.providers.seedDefaults(tid).catch(() => {});
+    // Seed default models — tenant must be explicitly provided from authenticated context
+    // No hardcoded tenant ID for seeding
     (this.repos.providers as any).db = db;
   }
 
   // --- Auth ---
   public async login(_apiKeyOrUser: string, tenantId?: string) {
-    const tid = tenantId || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
-    const token = jwtService.sign({
-      userId: 'usr_admin_01',
-      tenantId: tid,
-      email: 'admin@synapse.os',
-      role: 'admin' as any,
-      permissions: ['*'] as any,
-    });
-    return {
-      token,
-      userId: 'usr_admin_01',
-      tenantId: tid,
-      expiresIn: 86400,
-    };
+    // NO hardcoded admin identity. Authentication must go through AuthController
+    // with real database-backed users and password verification.
+    throw new Error('Use /api/v1/auth/login endpoint with AuthController for real authentication. No hardcoded login permitted.');
   }
 
   // --- Tenants ---

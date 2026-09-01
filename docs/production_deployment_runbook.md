@@ -18,21 +18,24 @@
 | MCP Server | 3595 | Streamable HTTP MCP endpoint | OPTIONAL |
 | Operator Frontend | 5173 (dev) / 80 (prod) | React UI | YES |
 
-### Environment Variables (MUST set for production)
+### Environment Variables (MUST set for production — FAIL-CLOSED)
+
+The application will **refuse to start** if any required variable is missing.
+No default secrets, no wildcard CORS, no silent development fallbacks.
 
 ```bash
-# CRITICAL — Application will use insecure defaults if not set
+# CRITICAL — Application will CRASH on startup if not set
 NODE_ENV=production
-SYNAPSE_JWT_SECRET=<random-64-char-hex-string>
-SYNAPSE_MASTER_KEY=<random-64-char-hex-string>
-SYNAPSE_CREDENTIAL_ENCRYPTION_KEY=<random-64-char-hex-string>
+SYNAPSE_JWT_SECRET=<random-64-char-hex-string>           # ≥32 chars, JWT signing
+SYNAPSE_CREDENTIAL_ENCRYPTION_KEY=<random-64-char-hex>   # ≥32 chars, AES-256-GCM master
+SYNAPSE_BEACON_SECRET=<random-64-char-hex-string>         # ≥32 chars, beacon signatures
 
-# REQUIRED — Database
+# REQUIRED — Database (no default URL)
 DATABASE_URL=postgresql://synapse:<password>@<host>:5432/synapse_os
 REDIS_URL=redis://<host>:6379
 
-# REQUIRED — CORS
-CORS_ORIGIN=https://your-domain.com
+# REQUIRED — CORS (no wildcard allowed)
+CORS_ORIGIN=https://your-domain.com,https://admin.your-domain.com
 
 # OPTIONAL — Provider Keys
 OPENROUTER_API_KEY=sk-or-v1-...
