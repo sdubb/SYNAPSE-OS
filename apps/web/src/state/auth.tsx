@@ -9,6 +9,7 @@ interface AuthContextValue {
   user: UserProfile | null;
   isLoading: boolean;
   login: (email: string, password?: string) => Promise<void>;
+  register: (email: string, fullName?: string, tenantId?: string) => Promise<void>;
   loginWithApiKey: (apiKey: string) => Promise<void>;
   logout: () => void;
   switchTenant: (newTenantId: string) => void;
@@ -100,6 +101,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // Register new user
+  const register = useCallback(async (email: string, fullName?: string, newTenantId?: string) => {
+    setIsLoading(true);
+    try {
+      const regTenant = newTenantId || api.getTenantId();
+      await api.request<{ user: any }>('/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({ email, fullName, tenantId: regTenant }),
+      });
+      // After registration, auto-login
+      await login(email);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [login]);
+
   // Login with API key
   const loginWithApiKey = useCallback(async (apiKey: string) => {
     setIsLoading(true);
@@ -163,6 +180,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         isLoading,
         login,
+        register,
         loginWithApiKey,
         logout,
         switchTenant,
