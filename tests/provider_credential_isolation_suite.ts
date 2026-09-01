@@ -68,7 +68,7 @@ assert(!prefix.includes('abc123'), 'Key prefix masks middle characters');
 
 section('2. Credential Isolation — Cross-User');
 
-const resolver = new ProviderCredentialResolver('test-master-key');
+const resolver = new ProviderCredentialResolver('test-master-key-for-aes-256-encryption-32-chars');
 
 // User A stores credential
 resolver.storeCredential({

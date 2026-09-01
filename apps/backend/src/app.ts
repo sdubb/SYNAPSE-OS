@@ -1,6 +1,7 @@
 import express, { Express } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import { config } from './config.js';
 import { requestIdMiddleware } from './middleware/request-id.js';
 import { authMiddleware } from './middleware/auth.js';
 import { tenantMiddleware } from './middleware/tenant.js';
@@ -36,11 +37,18 @@ export function createApp(): Express {
 
   // 1. Security headers & CORS
   app.use(helmet());
+  const allowedOrigins = config.CORS_ORIGIN.split(',').map((o) => o.trim());
   app.use(
     cors({
-      origin: '*',
+      origin: (origin, callback) => {
+        // Allow requests with no origin (mobile apps, curl, server-to-server)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin)) return callback(null, true);
+        callback(new Error(`Origin ${origin} not allowed by CORS policy`));
+      },
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Tenant-Id', 'X-Request-Id', 'X-Api-Key'],
+      credentials: true,
     })
   );
 

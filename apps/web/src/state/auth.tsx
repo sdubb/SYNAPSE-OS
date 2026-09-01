@@ -2,12 +2,16 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { api } from '@/api/client';
 import type { UserProfile } from '@/types';
 
+export type SessionSecurityState = 'ACTIVE' | 'EXPIRED' | 'REVOKED' | 'UNAUTHENTICATED';
+
 interface AuthContextValue {
   isAuthenticated: boolean;
   token: string | null;
   tenantId: string;
   user: UserProfile | null;
   isLoading: boolean;
+  sessionStatus: SessionSecurityState;
+  revocationReason: string | null;
   login: (email: string, password?: string) => Promise<void>;
   register: (email: string, fullName?: string, tenantId?: string) => Promise<void>;
   loginWithApiKey: (apiKey: string) => Promise<void>;
@@ -23,24 +27,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [tenantId, setTenantId] = useState<string>(() => api.getTenantId());
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [sessionStatus, setSessionStatus] = useState<SessionSecurityState>(() =>
+    api.getToken() ? 'ACTIVE' : 'UNAUTHENTICATED'
+  );
+  const [revocationReason, setRevocationReason] = useState<string | null>(null);
 
-  // Fetch current user from backend
-  const fetchCurrentUser = useCallback(async (): Promise<UserProfile | null> => {
+  // Fetch current user from authoritative backend
+  const fetchCurrentUser = useCallback(async (): Promise<{ user: UserProfile | null; status: SessionSecurityState; reason?: string }> => {
     try {
       const res = await api.request<{ user: any; tenantId: string }>('/auth/me');
       if (res.user) {
         return {
-          id: res.user.id,
-          name: res.user.fullName || res.user.email,
-          email: res.user.email,
-          role: res.user.role,
-          tenantId: res.user.tenantId || res.tenantId,
-          tenantName: res.user.tenantName || 'Organization',
+          user: {
+            id: res.user.id,
+            name: res.user.fullName || res.user.email,
+            email: res.user.email,
+            role: res.user.role || 'operator',
+            tenantId: res.user.tenantId || res.tenantId,
+            tenantName: res.user.tenantName || 'Enterprise Organization',
+          },
+          status: 'ACTIVE',
         };
       }
-      return null;
-    } catch {
-      return null;
+      return { user: null, status: 'EXPIRED' };
+    } catch (err: any) {
+      const statusCode = err?.status || err?.statusCode;
+      const errorMsg = err?.message || '';
+      if (statusCode === 403 || errorMsg.includes('REVOKED') || errorMsg.includes('revoked')) {
+        return { user: null, status: 'REVOKED', reason: errorMsg || 'Your session or account was revoked by an administrator.' };
+      }
+      if (statusCode === 401) {
+        return { user: null, status: 'EXPIRED', reason: 'Session has expired. Please sign in again.' };
+      }
+      return { user: null, status: 'UNAUTHENTICATED' };
     }
   }, []);
 
@@ -50,19 +69,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const savedToken = api.getToken();
         if (savedToken) {
-          // Verify token is still valid by fetching current user
-          const currentUser = await fetchCurrentUser();
-          if (currentUser) {
-            setUser(currentUser);
-            if (currentUser.tenantId) setTenantId(currentUser.tenantId);
+          const result = await fetchCurrentUser();
+          if (result.user && result.status === 'ACTIVE') {
+            setUser(result.user);
+            setSessionStatus('ACTIVE');
+            if (result.user.tenantId) setTenantId(result.user.tenantId);
           } else {
-            // Token invalid/expired — clear
+            // Token invalid/expired/revoked — fail closed
             api.setToken(null);
             setToken(null);
+            setUser(null);
+            setSessionStatus(result.status);
+            if (result.reason) setRevocationReason(result.reason);
           }
+        } else {
+          setSessionStatus('UNAUTHENTICATED');
         }
       } catch (err) {
-        console.error('Auth initialization failed:', err);
+        console.error('Auth initialization error:', err);
+        setSessionStatus('UNAUTHENTICATED');
       } finally {
         setIsLoading(false);
       }
@@ -73,6 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Login with email
   const login = useCallback(async (email: string, _password?: string) => {
     setIsLoading(true);
+    setRevocationReason(null);
     try {
       const res = await api.request<{
         token: string;
@@ -91,11 +117,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         id: res.user.id,
         name: res.user.fullName || res.user.email,
         email: res.user.email,
-        role: res.user.role,
+        role: res.user.role || 'operator',
         tenantId: res.user.tenantId || api.getTenantId(),
-        tenantName: res.user.tenantName || 'Organization',
+        tenantName: res.user.tenantName || 'Enterprise Organization',
       };
       setUser(profile);
+      setSessionStatus('ACTIVE');
+    } catch (err: any) {
+      if (err?.message?.includes('REVOKED') || err?.status === 403) {
+        setSessionStatus('REVOKED');
+        setRevocationReason(err.message || 'Account revoked');
+      }
+      throw err;
     } finally {
       setIsLoading(false);
     }
@@ -104,6 +137,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Register new user
   const register = useCallback(async (email: string, fullName?: string, newTenantId?: string) => {
     setIsLoading(true);
+    setRevocationReason(null);
     try {
       const regTenant = newTenantId || api.getTenantId();
       await api.request<{ user: any }>('/auth/register', {
@@ -120,6 +154,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Login with API key
   const loginWithApiKey = useCallback(async (apiKey: string) => {
     setIsLoading(true);
+    setRevocationReason(null);
     try {
       const res = await api.request<{
         token: string;
@@ -138,11 +173,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         id: res.user.id,
         name: res.user.fullName || res.user.email,
         email: res.user.email,
-        role: res.user.role,
+        role: res.user.role || 'operator',
         tenantId: res.user.tenantId || api.getTenantId(),
-        tenantName: res.user.tenantName || 'Organization',
+        tenantName: res.user.tenantName || 'Enterprise Organization',
       };
       setUser(profile);
+      setSessionStatus('ACTIVE');
     } finally {
       setIsLoading(false);
     }
@@ -153,6 +189,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     api.setToken(null);
     setToken(null);
     setUser(null);
+    setSessionStatus('UNAUTHENTICATED');
+    setRevocationReason(null);
   }, []);
 
   // Switch tenant
@@ -160,25 +198,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     api.setTenantId(newTenantId);
     setTenantId(newTenantId);
     // Refetch user with new tenant context
-    fetchCurrentUser().then((u) => {
-      if (u) setUser(u);
+    fetchCurrentUser().then((result) => {
+      if (result.user) setUser(result.user);
     });
   }, [fetchCurrentUser]);
 
   // Refresh user data
   const refreshUser = useCallback(async () => {
-    const currentUser = await fetchCurrentUser();
-    if (currentUser) setUser(currentUser);
+    const result = await fetchCurrentUser();
+    if (result.user) setUser(result.user);
+    setSessionStatus(result.status);
+    if (result.reason) setRevocationReason(result.reason);
   }, [fetchCurrentUser]);
 
   return (
     <AuthContext.Provider
       value={{
-        isAuthenticated: Boolean(token),
+        isAuthenticated: Boolean(token) && sessionStatus === 'ACTIVE',
         token,
         tenantId,
         user,
         isLoading,
+        sessionStatus,
+        revocationReason,
         login,
         register,
         loginWithApiKey,

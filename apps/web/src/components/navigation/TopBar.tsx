@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Activity, ShieldAlert, LogOut, Building, User, ChevronRight, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
+import { Activity, ShieldAlert, LogOut, Building, User, ChevronRight, Wifi, WifiOff } from 'lucide-react';
 import { useAuth } from '@/state/auth';
 import { useRealtime } from '@/realtime/WSConnectionProvider';
 import { useHealth } from '@/hooks/useHealth';
@@ -48,7 +48,7 @@ export function TopBar() {
     setIsTriggeringKillSwitch(true);
     try {
       await api.triggerKillSwitch(emergencyReason || 'Operator emergency stop triggered');
-      success('Emergency kill-switch triggered', 'All active runtimes halted.');
+      success('Emergency kill-switch triggered', 'All active runtimes halted across tenant boundary.');
       setIsEmergencyModalOpen(false);
     } catch (err) {
       error('Kill-switch failed', (err as Error).message);
@@ -59,6 +59,15 @@ export function TopBar() {
 
   const breadcrumbs = getBreadcrumbs();
   const isHealthy = !healthError && healthData?.status === 'healthy';
+
+  const wsStatusDisplay = {
+    CONNECTED: { label: 'Realtime Live', color: 'emerald', dot: 'bg-emerald-500' },
+    CONNECTING: { label: 'Connecting...', color: 'amber', dot: 'bg-amber-500' },
+    RECONNECTING: { label: 'Reconnecting...', color: 'amber', dot: 'bg-amber-500' },
+    UNAUTHORIZED: { label: 'WS Unauthorized (4001)', color: 'rose', dot: 'bg-rose-500' },
+    DISCONNECTED: { label: 'Offline', color: 'slate', dot: 'bg-slate-500' },
+    ERROR: { label: 'WS Error', color: 'rose', dot: 'bg-rose-500' },
+  }[wsStatus] || { label: 'Offline', color: 'slate', dot: 'bg-slate-500' };
 
   return (
     <header className="h-14 px-5 bg-slate-950/80 backdrop-blur-md border-b border-slate-800 flex items-center justify-between z-10 select-none">
@@ -85,6 +94,22 @@ export function TopBar() {
       <div className="flex items-center gap-3.5">
         {/* Global Command Palette Trigger */}
         <GlobalCommandPalette />
+
+        {/* WebSocket Live Telemetry Badge */}
+        <div
+          className={cn(
+            'flex items-center gap-2 px-2.5 py-1 rounded-md border text-[11px] font-mono transition-colors',
+            wsStatus === 'CONNECTED'
+              ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300'
+              : wsStatus === 'UNAUTHORIZED'
+              ? 'bg-rose-950/40 border-rose-500/30 text-rose-300'
+              : 'bg-slate-900 border-slate-800 text-slate-400'
+          )}
+          title={`WebSocket Status: ${wsStatus}`}
+        >
+          <span className={cn('h-1.5 w-1.5 rounded-full', wsStatusDisplay.dot)} />
+          <span className="hidden sm:inline font-medium">{wsStatusDisplay.label}</span>
+        </div>
 
         {/* System Health Badge */}
         <button
@@ -126,13 +151,13 @@ export function TopBar() {
         <Dropdown
           trigger={
             <div className="flex items-center gap-2.5 cursor-pointer group">
-              <Avatar name={user?.name || 'Alex Rivera'} size="sm" status="online" />
+              <Avatar name={user?.name || user?.email || 'Operator'} size="sm" status="online" />
               <div className="hidden lg:block text-left">
                 <div className="text-xs font-semibold text-slate-200 group-hover:text-white leading-tight">
-                  {user?.name || 'Alex Rivera'}
+                  {user?.name || user?.email || 'Operator'}
                 </div>
                 <div className="text-[10px] text-slate-400 font-mono leading-tight">
-                  {user?.tenantName || 'Production Org'}
+                  {user?.tenantName || user?.tenantId || 'Organization'}
                 </div>
               </div>
             </div>
@@ -142,7 +167,7 @@ export function TopBar() {
               key: 'user-header',
               label: (
                 <div className="px-1 py-0.5">
-                  <div className="font-semibold text-slate-100">{user?.name}</div>
+                  <div className="font-semibold text-slate-100">{user?.name || 'Operator'}</div>
                   <div className="text-[11px] text-slate-400 font-mono">{user?.email}</div>
                 </div>
               ),
@@ -151,13 +176,13 @@ export function TopBar() {
             { divider: true, key: 'div1' },
             {
               key: 'tenant-info',
-              label: 'Tenant: default_enterprise',
-              icon: <Building className="w-4 h-4" />,
+              label: `Tenant: ${user?.tenantName || user?.tenantId || 'Active Tenant'}`,
+              icon: <Building className="w-4 h-4 text-cyan-400" />,
             },
             {
               key: 'role-info',
-              label: 'Role: Admin / Operator',
-              icon: <User className="w-4 h-4" />,
+              label: `Role: ${user?.role || 'operator'}`,
+              icon: <User className="w-4 h-4 text-purple-400" />,
             },
             { divider: true, key: 'div2' },
             {

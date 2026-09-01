@@ -46,6 +46,7 @@ export interface SecurityViolationPayload {
 
 export interface BeaconOptions {
   beaconUrl?: string;
+  beaconSecret?: string;
   enableRemoteDispatch?: boolean;
   enableLocalForensicsLog?: boolean;
   enableEmergencyLockdown?: boolean;
@@ -55,9 +56,16 @@ export interface BeaconOptions {
 export class TamperTelemetryBeacon {
   private static instance: TamperTelemetryBeacon;
   private options: Required<BeaconOptions>;
-  private static readonly BEACON_SECRET = "synapse_core_beacon_signature_secret_2026";
+  private beaconSecret: string;
 
   constructor(options: BeaconOptions = {}) {
+    const secret = options.beaconSecret || process.env.SYNAPSE_BEACON_SECRET;
+    if (!secret) {
+      throw new Error(
+        "Beacon signature secret is required. Set SYNAPSE_BEACON_SECRET environment variable or pass beaconSecret to constructor."
+      );
+    }
+    this.beaconSecret = secret;
     this.options = {
       beaconUrl: options.beaconUrl || process.env.SYNAPSE_SECURITY_BEACON_URL || "",
       enableRemoteDispatch: options.enableRemoteDispatch ?? true,
@@ -99,7 +107,7 @@ export class TamperTelemetryBeacon {
 
     const rawPayload = `${beaconId}|${violationType}|${timestamp}|${systemFingerprint}|${hostInfo.hostname}|${hostInfo.pid}`;
     const signature = crypto
-      .createHmac("sha256", TamperTelemetryBeacon.BEACON_SECRET)
+      .createHmac("sha256", this.beaconSecret)
       .update(rawPayload)
       .digest("hex");
 

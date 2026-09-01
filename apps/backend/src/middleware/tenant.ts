@@ -1,22 +1,13 @@
 import type { Request, Response, NextFunction } from 'express';
 import { TenantContext } from '@synapse/tenancy';
 
-// Well-known tenant slugs → UUID mappings for development convenience
-const TENANT_SLUG_MAP: Record<string, string> = {
-  'default': 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
-  'default_tenant': 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
-  'tenant_default': 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
-  'dev_tenant': 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
-  'system': 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
-};
-
 function resolveTenantId(raw: string): string {
   // If it's already a valid UUID, use it as-is
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)) {
     return raw;
   }
-  // Try slug map or return valid default UUID
-  return TENANT_SLUG_MAP[raw] || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+  // No hardcoded fallback — tenant must come from authenticated identity or valid UUID header
+  return raw; // Return as-is; validation will catch non-UUID values
 }
 
 export function tenantMiddleware(req: Request, res: Response, next: NextFunction): void {
@@ -37,8 +28,15 @@ export function tenantMiddleware(req: Request, res: Response, next: NextFunction
     return;
   }
 
-  // Use the verified user tenant ID as the source of truth
-  const tenantId = userTenant || headerTenant || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+  // Use the verified user tenant ID as the source of truth — no hardcoded fallback
+  const tenantId = userTenant || headerTenant;
+  if (!tenantId) {
+    res.status(400).json({
+      error: 'TENANT_REQUIRED',
+      message: 'Tenant identity is required. Authenticate with a valid JWT or provide a valid tenant UUID in X-Tenant-Id header.',
+    });
+    return;
+  }
 
   req.tenantId = tenantId;
   res.setHeader('X-Tenant-Id', tenantId);

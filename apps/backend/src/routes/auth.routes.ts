@@ -10,14 +10,14 @@ export const authRouter = Router();
 authRouter.post('/login', async (req, res, next) => {
   try {
     const { email, password, apiKey, tenantId } = req.body;
-    const identifier = email || apiKey || password;
+    const identifier = email || apiKey;
     if (!identifier) {
       return res.status(400).json({
         error: 'MISSING_CREDENTIALS',
         message: 'Email or API key is required',
       });
     }
-    const result = await authController.login(identifier, tenantId);
+    const result = await authController.login(identifier, password, tenantId);
     res.json(result);
   } catch (err) {
     if (err instanceof AuthError) {
@@ -33,14 +33,20 @@ authRouter.post('/login', async (req, res, next) => {
  */
 authRouter.post('/register', async (req, res, next) => {
   try {
-    const { email, fullName, tenantId } = req.body;
-    if (!email) {
+    const { email, fullName, password, tenantId } = req.body;
+    if (!email || !password) {
       return res.status(400).json({
-        error: 'MISSING_EMAIL',
-        message: 'Email is required',
+        error: 'MISSING_FIELDS',
+        message: 'Email and password are required',
       });
     }
-    const user = await authController.register(email, fullName || '', tenantId || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11');
+    if (!tenantId) {
+      return res.status(400).json({
+        error: 'MISSING_TENANT',
+        message: 'Tenant ID is required',
+      });
+    }
+    const user = await authController.register(email, fullName || '', password, tenantId);
     res.status(201).json({ user });
   } catch (err) {
     if (err instanceof AuthError) {

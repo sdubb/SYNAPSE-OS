@@ -21,7 +21,17 @@ export class EncryptionService {
   private defaultKeyId: string;
 
   constructor(masterSecret?: string, keyId = "synapse-master-v1") {
-    const rawSecret = masterSecret ?? process.env["SYNAPSE_MASTER_KEY"] ?? "synapse-default-secure-master-key-32bytes!";
+    const rawSecret = masterSecret ?? process.env["SYNAPSE_MASTER_KEY"];
+    if (!rawSecret) {
+      throw new Error(
+        "Master encryption key is required. Set SYNAPSE_MASTER_KEY environment variable or pass masterSecret to EncryptionService constructor."
+      );
+    }
+    if (rawSecret.length < 32) {
+      throw new Error(
+        "Master encryption key must be at least 32 characters for AES-256 security."
+      );
+    }
     this.masterKey = Buffer.from(rawSecret, "utf-8");
     this.defaultKeyId = keyId;
   }

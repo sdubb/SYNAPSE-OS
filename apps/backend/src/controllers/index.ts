@@ -41,8 +41,9 @@ export interface RepositoryContainer {
 
 import { JwtService } from '@synapse/security';
 import { ClineEngine, ClineStorageAdapter } from '@synapse/engine-adapter';
+import { config } from '../config.js';
 
-const jwtService = new JwtService();
+const jwtService = new JwtService({ secret: config.JWT_SECRET });
 
 export class AppController {
   public readonly services: ServiceContainer;

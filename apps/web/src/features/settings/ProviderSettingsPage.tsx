@@ -44,59 +44,40 @@ const PROVIDERS: Record<string, { name: string; icon: string; color: string; pla
   },
 };
 
+import { api } from '@/api/client';
+
 // API helpers
-const api = {
+const providerApi = {
   async list(): Promise<ProviderCredential[]> {
-    const res = await fetch('/api/v1/provider-credentials', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
-    });
-    if (!res.ok) throw new Error('Failed to list credentials');
-    const data = await res.json();
+    const data = await api.request<{ credentials: ProviderCredential[] }>('/provider-credentials');
     return data.credentials || [];
   },
 
   async create(payload: { provider: string; apiKey: string; model?: string; baseUrl?: string }): Promise<ProviderCredential> {
-    const res = await fetch('/api/v1/provider-credentials', {
+    const data = await api.request<{ credential: ProviderCredential }>('/provider-credentials', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-      },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error('Failed to create credential');
-    const data = await res.json();
     return data.credential;
   },
 
   async revoke(id: string): Promise<void> {
-    const res = await fetch(`/api/v1/provider-credentials/${id}`, {
+    await api.request<void>(`/provider-credentials/${id}`, {
       method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
     });
-    if (!res.ok) throw new Error('Failed to revoke credential');
   },
 
   async rotate(id: string, newApiKey: string): Promise<{ old: ProviderCredential; new: ProviderCredential }> {
-    const res = await fetch(`/api/v1/provider-credentials/${id}/rotate`, {
+    return api.request<{ old: ProviderCredential; new: ProviderCredential }>(`/provider-credentials/${id}/rotate`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-      },
       body: JSON.stringify({ apiKey: newApiKey }),
     });
-    if (!res.ok) throw new Error('Failed to rotate credential');
-    return res.json();
   },
 
   async test(id: string): Promise<{ success: boolean; message: string }> {
-    const res = await fetch(`/api/v1/provider-credentials/${id}/test`, {
+    return api.request<{ success: boolean; message: string }>(`/provider-credentials/${id}/test`, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
     });
-    if (!res.ok) throw new Error('Failed to test credential');
-    return res.json();
   },
 };
 
@@ -118,7 +99,7 @@ function AddCredentialModal({ onClose, onAdded }: { onClose: () => void; onAdded
     setError(null);
 
     try {
-      await api.create({ provider, apiKey, model: model || undefined });
+      await providerApi.create({ provider, apiKey, model: model || undefined });
       onAdded();
       onClose();
     } catch (err) {
@@ -263,10 +244,10 @@ function CredentialCard({
     setTesting(true);
     setTestResult(null);
     try {
-      const result = await api.test(credential.id);
+      const result = await providerApi.test(credential.id);
       setTestResult(result);
-    } catch (err) {
-      setTestResult({ success: false, message: 'Connection test failed' });
+    } catch (err: any) {
+      setTestResult({ success: false, message: err?.message || 'Connection test failed' });
     } finally {
       setTesting(false);
     }
@@ -274,7 +255,7 @@ function CredentialCard({
 
   const handleRevoke = async () => {
     try {
-      await api.revoke(credential.id);
+      await providerApi.revoke(credential.id);
       onRefresh();
     } catch (err) {
       console.error('Revoke failed:', err);
@@ -285,7 +266,7 @@ function CredentialCard({
     if (!newKey) return;
     setRotating(true);
     try {
-      await api.rotate(credential.id, newKey);
+      await providerApi.rotate(credential.id, newKey);
       setShowRotate(false);
       setNewKey('');
       onRefresh();
@@ -442,7 +423,7 @@ export function ProviderSettingsPage() {
   const loadCredentials = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.list();
+      const data = await providerApi.list();
       setCredentials(data);
     } catch (err) {
       console.error('Failed to load credentials:', err);

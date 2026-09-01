@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { JwtService } from '@synapse/security';
+import { config } from '../config.js';
 import { authController } from '../controllers/auth.controller.js';
 
 export interface UserContext {
@@ -18,7 +19,7 @@ declare global {
   }
 }
 
-const jwtService = new JwtService();
+const jwtService = new JwtService({ secret: config.JWT_SECRET });
 
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
   // Allow public endpoints to proceed without token

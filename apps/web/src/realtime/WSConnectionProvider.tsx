@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/state/auth';
 import { SynapseRealtimeEvent } from '@/types';
 
-export type WSConnectionStatus = 'CONNECTED' | 'CONNECTING' | 'DISCONNECTED' | 'ERROR';
+export type WSConnectionStatus = 'CONNECTED' | 'CONNECTING' | 'DISCONNECTED' | 'RECONNECTING' | 'UNAUTHORIZED' | 'ERROR';
 export type RealtimeEventListener = (event: SynapseRealtimeEvent) => void;
 
 export interface WSContextValue {
@@ -40,7 +40,12 @@ export function WSConnectionProvider({ children }: { children: React.ReactNode }
       socketRef.current = null;
     }
 
-    setStatus('CONNECTING');
+    if (!token) {
+      setStatus('DISCONNECTED');
+      return;
+    }
+
+    setStatus((prev) => (prev === 'DISCONNECTED' || prev === 'ERROR' ? 'RECONNECTING' : 'CONNECTING'));
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.hostname;
@@ -75,6 +80,11 @@ export function WSConnectionProvider({ children }: { children: React.ReactNode }
       ws.onmessage = (event) => {
         try {
           const parsed = JSON.parse(event.data);
+          if (parsed.type === 'error' && parsed.message === 'UNAUTHORIZED_WS_CONNECTION') {
+            setStatus('UNAUTHORIZED');
+            return;
+          }
+
           const synapseEvent: SynapseRealtimeEvent = parsed.type === 'EVENT' && parsed.data ? parsed.data : parsed;
 
           if (synapseEvent && synapseEvent.eventType) {
@@ -86,7 +96,7 @@ export function WSConnectionProvider({ children }: { children: React.ReactNode }
             specificListeners?.forEach((fn) => fn(synapseEvent));
             wildcardListeners?.forEach((fn) => fn(synapseEvent));
 
-            // Dynamically invalidate & update React Query cache based on event category
+            // Invalidate React Query cache on relevant events
             const eventType = synapseEvent.eventType || '';
 
             if (eventType.startsWith('session.') || eventType.startsWith('run.')) {
@@ -119,11 +129,17 @@ export function WSConnectionProvider({ children }: { children: React.ReactNode }
         setStatus('ERROR');
       };
 
-      ws.onclose = () => {
-        setStatus('DISCONNECTED');
+      ws.onclose = (event) => {
         if (heartbeatIntervalRef.current) {
           clearInterval(heartbeatIntervalRef.current);
         }
+
+        if (event.code === 4001 || event.reason === 'Unauthorized') {
+          setStatus('UNAUTHORIZED');
+          return; // Do not reconnect on unauthorized token
+        }
+
+        setStatus('DISCONNECTED');
 
         // Schedule exponential backoff reconnect
         if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
@@ -131,6 +147,7 @@ export function WSConnectionProvider({ children }: { children: React.ReactNode }
         backoffDelayRef.current = Math.min(delay * 1.5, 10000);
 
         reconnectTimeoutRef.current = window.setTimeout(() => {
+          setStatus('RECONNECTING');
           connect();
         }, delay);
       };
@@ -211,5 +228,3 @@ export function useRealtime(): WSContextValue {
   }
   return context;
 }
-
-

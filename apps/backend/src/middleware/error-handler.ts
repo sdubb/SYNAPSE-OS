@@ -26,16 +26,16 @@ export function errorHandlerMiddleware(
 
   const response: ApiErrorResponse = {
     error: err.name || 'INTERNAL_SERVER_ERROR',
-    message: statusCode === 500 && process.env.NODE_ENV === 'production'
+    // Never expose internal error details, stack traces, or implementation details
+    message: statusCode >= 500
       ? 'An unexpected error occurred. Please contact support.'
       : err.message,
     statusCode,
     requestId,
   };
 
-  if (process.env.NODE_ENV !== 'production' && err.stack) {
-    response.stack = err.stack;
-  }
+  // Stack traces are NEVER exposed through API responses
+  // Detailed diagnostics remain server-side only
 
   res.status(statusCode).json(response);
 }

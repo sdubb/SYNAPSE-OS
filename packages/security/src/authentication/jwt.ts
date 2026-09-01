@@ -21,7 +21,18 @@ export class JwtService {
   private defaultAudience: string;
 
   constructor(options?: { secret?: string; issuer?: string; audience?: string }) {
-    this.defaultSecret = options?.secret ?? process.env["SYNAPSE_JWT_SECRET"] ?? "synapse-insecure-default-jwt-secret-key-change-me!";
+    const secret = options?.secret ?? process.env["SYNAPSE_JWT_SECRET"];
+    if (!secret) {
+      throw new Error(
+        "JWT signing secret is required. Set SYNAPSE_JWT_SECRET environment variable or pass secret to JwtService constructor. No default secret is permitted."
+      );
+    }
+    if (secret.length < 32) {
+      throw new Error(
+        "JWT signing secret must be at least 32 characters for production security."
+      );
+    }
+    this.defaultSecret = secret;
     this.defaultIssuer = options?.issuer ?? "synapse-os";
     this.defaultAudience = options?.audience ?? "synapse-control-plane";
   }

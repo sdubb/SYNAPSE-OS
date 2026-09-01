@@ -11,8 +11,17 @@ export class CredentialEncryption {
   private masterKey: Buffer;
 
   constructor(masterKey?: string) {
-    const key =
-      masterKey || process.env.SYNAPSE_CREDENTIAL_ENCRYPTION_KEY || "synapse-dev-credential-encryption-key-change-me";
+    const key = masterKey || process.env.SYNAPSE_CREDENTIAL_ENCRYPTION_KEY;
+    if (!key) {
+      throw new Error(
+        "Master encryption key is required. Set SYNAPSE_CREDENTIAL_ENCRYPTION_KEY environment variable or pass key to CredentialEncryption constructor. No default key is permitted."
+      );
+    }
+    if (key.length < 32) {
+      throw new Error(
+        "Master encryption key must be at least 32 characters for AES-256 security."
+      );
+    }
     this.masterKey = Buffer.from(key, "utf-8");
   }
 

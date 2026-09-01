@@ -5,6 +5,6 @@ export default defineConfig({
   out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {
-    url: process.env.DATABASE_URL || "postgres://synapse:synapse@localhost:5432/synapse_os",
+    url: process.env.DATABASE_URL ?? (() => { throw new Error('DATABASE_URL is required. No default database URL is permitted.'); })(),
   },
 });

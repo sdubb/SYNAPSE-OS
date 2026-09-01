@@ -5,7 +5,7 @@ import { useAuth } from '@/state/auth';
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { login, register, loginWithApiKey } = useAuth();
+  const { login, register, loginWithApiKey, sessionStatus, revocationReason } = useAuth();
   const [mode, setMode] = useState<'login' | 'register' | 'apikey'>('login');
   const [email, setEmail] = useState('');
   const [fullName, setFullName] = useState('');
@@ -90,6 +90,19 @@ export function LoginPage() {
             </div>
           </div>
         </div>
+
+        {/* Session Expiration or Revocation Alert */}
+        {(sessionStatus === 'REVOKED' || sessionStatus === 'EXPIRED' || revocationReason) && (
+          <div className="p-4 bg-rose-950/60 border border-rose-500/40 rounded-xl space-y-1 font-mono text-xs text-rose-300 animate-in fade-in">
+            <div className="flex items-center gap-2 font-bold uppercase text-rose-400">
+              <ShieldCheck className="w-4 h-4 text-rose-400" />
+              <span>{sessionStatus === 'REVOKED' ? 'Session Revoked' : 'Session Expired'}</span>
+            </div>
+            <p className="text-[11px] text-rose-300/90">
+              {revocationReason || (sessionStatus === 'REVOKED' ? 'Your operator session has been revoked by security policy.' : 'Your session token has expired. Please authenticate to resume.')}
+            </p>
+          </div>
+        )}
 
         {/* Authentication Card */}
         <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-6 shadow-xl">

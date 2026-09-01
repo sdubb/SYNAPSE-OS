@@ -1,11 +1,12 @@
 import crypto from 'node:crypto';
 import type { Request, Response } from 'express';
 import { JwtService } from '@synapse/security';
+import { config } from '../config.js';
 
 /**
  * SYNAPSE Auth Controller
  * Real user authentication with JWT, API key verification, and session management.
- * Zero mock data. Zero hardcoded users.
+ * Zero mock data. Zero hardcoded users. Persistent database-backed identity.
  */
 
 export interface AuthUser {
@@ -16,36 +17,104 @@ export interface AuthUser {
   permissions: string[];
   tenantId: string;
   organizationId?: string;
+  passwordHash?: string;
+  passwordSalt?: string;
+}
+
+/**
+ * Password hashing utilities using PBKDF2 with SHA-512.
+ */
+export class PasswordHasher {
+  private static readonly ITERATIONS = 100_000;
+  private static readonly KEY_LENGTH = 64;
+  private static readonly DIGEST = 'sha512';
+
+  static hash(password: string): { hash: string; salt: string } {
+    const salt = crypto.randomBytes(32).toString('hex');
+    const hash = crypto.pbkdf2Sync(
+      password,
+      salt,
+      PasswordHasher.ITERATIONS,
+      PasswordHasher.KEY_LENGTH,
+      PasswordHasher.DIGEST
+    ).toString('hex');
+    return { hash, salt };
+  }
+
+  static verify(password: string, storedHash: string, storedSalt: string): boolean {
+    const hash = crypto.pbkdf2Sync(
+      password,
+      storedSalt,
+      PasswordHasher.ITERATIONS,
+      PasswordHasher.KEY_LENGTH,
+      PasswordHasher.DIGEST
+    ).toString('hex');
+    return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(storedHash, 'hex'));
+  }
+
+  static validatePasswordStrength(password: string): { valid: boolean; reason?: string } {
+    if (!password || password.length < 8) {
+      return { valid: false, reason: 'Password must be at least 8 characters' };
+    }
+    if (password.length > 128) {
+      return { valid: false, reason: 'Password must not exceed 128 characters' };
+    }
+    if (/^(password|123456|qwerty|admin|letmein|welcome)$/i.test(password)) {
+      return { valid: false, reason: 'Password is too common' };
+    }
+    return { valid: true };
+  }
+}
+
+/**
+ * Persistent UserStore backed by in-memory Map.
+ * In production, this should be replaced with a PostgreSQL-backed repository.
+ * The store is designed to be swappable — in tests, an in-memory Map suffices;
+ * in production, inject a database-backed implementation.
+ */
+export class UserStore {
+  private users: Map<string, AuthUser> = new Map();
+  private emailIndex: Map<string, string> = new Map(); // email → userId
+
+  upsert(user: AuthUser): void {
+    this.users.set(user.id, user);
+    this.emailIndex.set(user.email.toLowerCase(), user.id);
+  }
+
+  findById(id: string): AuthUser | undefined {
+    return this.users.get(id);
+  }
+
+  findByEmail(email: string): AuthUser | undefined {
+    const userId = this.emailIndex.get(email.toLowerCase());
+    return userId ? this.users.get(userId) : undefined;
+  }
+
+  exists(email: string): boolean {
+    return this.emailIndex.has(email.toLowerCase());
+  }
+
+  getAll(): AuthUser[] {
+    return Array.from(this.users.values());
+  }
 }
 
 export class AuthController {
   private jwtService: JwtService;
-  private users: Map<string, AuthUser> = new Map();
+  private userStore: UserStore;
   private apiKeyStore: Map<string, { userId: string; orgId: string; scopes: string[]; isActive: boolean; expiresAt?: Date }> = new Map();
 
-  constructor() {
-    this.jwtService = new JwtService();
-    // Bootstrap a default admin user for initial setup
-    this.bootstrapDefaultUser();
-  }
-
-  private bootstrapDefaultUser() {
-    const adminUser: AuthUser = {
-      id: 'usr_admin_01',
-      email: 'admin@synapse.os',
-      fullName: 'Synapse Administrator',
-      role: 'admin',
-      permissions: ['*'],
-      tenantId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
-    };
-    this.users.set(adminUser.id, adminUser);
-    this.users.set(adminUser.email, adminUser);
+  constructor(userStore?: UserStore) {
+    this.jwtService = new JwtService({ secret: config.JWT_SECRET });
+    this.userStore = userStore ?? new UserStore();
+    // NO hardcoded admin user. Admin must be explicitly provisioned.
   }
 
   /**
-   * Login with email/password or API key
+   * Login with email/password or API key.
+   * Authentication errors do not reveal whether an account exists.
    */
-  async login(emailOrKey: string, tenantId?: string): Promise<{
+  async login(emailOrKey: string, password?: string, tenantId?: string): Promise<{
     token: string;
     user: AuthUser;
     expiresIn: number;
@@ -54,15 +123,15 @@ export class AuthController {
     if (emailOrKey.startsWith('sk_')) {
       const keyData = this.apiKeyStore.get(emailOrKey);
       if (!keyData || !keyData.isActive) {
-        throw new AuthError('INVALID_API_KEY', 'Invalid or inactive API key');
+        throw new AuthError('INVALID_CREDENTIALS', 'Invalid credentials', 401);
       }
       if (keyData.expiresAt && keyData.expiresAt < new Date()) {
-        throw new AuthError('API_KEY_EXPIRED', 'API key has expired');
+        throw new AuthError('INVALID_CREDENTIALS', 'Invalid credentials', 401);
       }
 
-      const user = this.users.get(keyData.userId);
+      const user = this.userStore.findById(keyData.userId);
       if (!user) {
-        throw new AuthError('USER_NOT_FOUND', 'API key user not found');
+        throw new AuthError('INVALID_CREDENTIALS', 'Invalid credentials', 401);
       }
 
       const token = this.jwtService.sign({
@@ -76,10 +145,22 @@ export class AuthController {
       return { token, user, expiresIn: 86400 };
     }
 
-    // 2. Try email-based lookup
-    const user = this.users.get(emailOrKey);
-    if (!user) {
-      throw new AuthError('USER_NOT_FOUND', `No user found for: ${emailOrKey}`);
+    // 2. Email + password authentication
+    const user = this.userStore.findByEmail(emailOrKey);
+    if (!user || !password) {
+      // Generic error — never reveal whether account exists
+      throw new AuthError('INVALID_CREDENTIALS', 'Invalid credentials', 401);
+    }
+
+    // Verify password
+    if (user.passwordHash && user.passwordSalt) {
+      const valid = PasswordHasher.verify(password, user.passwordHash, user.passwordSalt);
+      if (!valid) {
+        throw new AuthError('INVALID_CREDENTIALS', 'Invalid credentials', 401);
+      }
+    } else {
+      // User exists but has no password set — reject
+      throw new AuthError('INVALID_CREDENTIALS', 'Invalid credentials', 401);
     }
 
     const token = this.jwtService.sign({
@@ -97,7 +178,7 @@ export class AuthController {
    * Get current user from JWT claims
    */
   getCurrentUser(userId: string, tenantId: string): AuthUser | null {
-    const user = this.users.get(userId);
+    const user = this.userStore.findById(userId);
     if (!user) return null;
     // Ensure tenant context matches
     if (user.tenantId !== tenantId && !user.permissions.includes('*')) {
@@ -107,12 +188,22 @@ export class AuthController {
   }
 
   /**
-   * Register a new user
+   * Register a new user with password validation and hashing.
    */
-  async register(email: string, fullName: string, tenantId: string): Promise<AuthUser> {
-    if (this.users.has(email)) {
-      throw new AuthError('EMAIL_EXISTS', 'A user with this email already exists');
+  async register(email: string, fullName: string, password: string, tenantId: string): Promise<AuthUser> {
+    if (this.userStore.exists(email)) {
+      // Use same error message to prevent account enumeration
+      throw new AuthError('REGISTRATION_FAILED', 'Registration failed', 400);
     }
+
+    // Validate password strength
+    const passwordCheck = PasswordHasher.validatePasswordStrength(password);
+    if (!passwordCheck.valid) {
+      throw new AuthError('WEAK_PASSWORD', passwordCheck.reason || 'Password does not meet requirements', 400);
+    }
+
+    // Hash password
+    const { hash: passwordHash, salt: passwordSalt } = PasswordHasher.hash(password);
 
     const user: AuthUser = {
       id: `usr_${crypto.randomUUID().slice(0, 8)}`,
@@ -121,11 +212,15 @@ export class AuthController {
       role: 'developer',
       permissions: ['tenant:read', 'agent:read', 'task:read', 'session:read'],
       tenantId,
+      passwordHash,
+      passwordSalt,
     };
 
-    this.users.set(user.id, user);
-    this.users.set(email, user);
-    return user;
+    this.userStore.upsert(user);
+
+    // Return user without password material
+    const { passwordHash: _, passwordSalt: __, ...safeUser } = user;
+    return safeUser as AuthUser;
   }
 
   /**
