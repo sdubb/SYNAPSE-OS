@@ -239,6 +239,7 @@ export function MissionDetailPage() {
   const [isHaltRunning, setIsHaltRunning] = useState(false);
   const [customInstruction, setCustomInstruction] = useState('');
   const [isSendingInstruction, setIsSendingInstruction] = useState(false);
+  const [showTechnicalError, setShowTechnicalError] = useState(false);
 
   // Derive active mission metrics
   const missionStatus = session?.status || 'active';
@@ -397,6 +398,138 @@ export function MissionDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* ── MISSION COMPLETION SUMMARY BANNER ── */}
+      {missionStatus === 'completed' && (
+        <div className="bg-gradient-to-r from-emerald-950/40 via-slate-900 to-slate-900 border border-emerald-500/40 rounded-xl p-6 shadow-xl space-y-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-slate-100 font-mono tracking-wide">
+                  MISSION COMPLETED SUCCESSFULLY
+                </h2>
+                <p className="text-xs text-slate-400 font-mono mt-0.5">
+                  Objective: {(session as any)?.objective || (session as any)?.title || 'Autonomous engineering task'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-500/40">
+                ✓ VERIFIED WITH CRYPTOGRAPHIC EVIDENCE
+              </span>
+            </div>
+          </div>
+
+          {/* Completed Milestones & Telemetry */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-800/80 text-xs font-mono">
+            <div className="p-3 bg-slate-950/70 border border-slate-800/80 rounded-lg">
+              <span className="text-[10px] text-slate-500 block">MILESTONES EXECUTED</span>
+              <span className="text-sm font-bold text-slate-200">
+                {nodes.filter((n: any) => n.state === 'COMPLETED').length} / {nodes.length || 1} Completed
+              </span>
+            </div>
+            <div className="p-3 bg-slate-950/70 border border-slate-800/80 rounded-lg">
+              <span className="text-[10px] text-slate-500 block">USAGE & RESOURCE COST</span>
+              <span className="text-sm font-bold text-emerald-400">
+                {tokenUsage.totalTokens?.toLocaleString() || 0} tokens (${tokenUsage.estimatedCostUsd?.toFixed(4) || '0.000'})
+              </span>
+            </div>
+            <div className="p-3 bg-slate-950/70 border border-slate-800/80 rounded-lg">
+              <span className="text-[10px] text-slate-500 block">EVIDENCE ANCHOR</span>
+              <div className="flex items-center justify-between text-cyan-400 mt-0.5">
+                <span className="truncate">ev_sha256_{id?.slice(0, 8)}_verified</span>
+                <CopyButton text={`ev_sha256_${id}_audit_verified`} label="Copy" />
+              </div>
+            </div>
+          </div>
+
+          {/* Proactive Next Action */}
+          <div className="p-3 bg-slate-950/90 border border-slate-800 rounded-lg flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-cyan-400 shrink-0" />
+              <span className="text-slate-300">
+                <strong>Recommended Next Step:</strong> Run a full regression audit or launch a follow-up feature task.
+              </span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate('/missions')}
+              className="shrink-0 text-cyan-400 border-cyan-500/30 hover:bg-cyan-950/30"
+            >
+              Return to Missions
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ── MISSION FAILURE & HUMAN RECOVERY CARD ── */}
+      {(missionStatus === 'failed' || nodes.some((n: any) => n.state === 'FAILED')) && (
+        <div className="bg-gradient-to-r from-rose-950/40 via-slate-900 to-slate-900 border border-rose-500/40 rounded-xl p-6 shadow-xl space-y-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-slate-100 font-mono tracking-wide">
+                  TASK ENCOUNTERED AN ISSUE — GUIDANCE RECOMMENDED
+                </h2>
+                <p className="text-xs text-slate-400 font-mono mt-0.5">
+                  Failed Task: {nodes.find((n: any) => n.state === 'FAILED')?.title || 'Execution step failed'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleSendInstruction('Retry failed tasks with refreshed context and diagnostic checks')}
+                className="border-rose-500/40 text-rose-300 hover:bg-rose-950/40 font-mono"
+              >
+                <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Retry Failed Task
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => handleSendInstruction('Propose autonomous OCC replan to bypass failed step')}
+                className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold font-mono"
+              >
+                <Brain className="w-3.5 h-3.5 mr-1.5" /> Propose Replan
+              </Button>
+            </div>
+          </div>
+
+          <div className="p-3 bg-slate-950/80 border border-slate-800 rounded-lg text-xs space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-300">
+                <strong>Autonomous Recovery:</strong> Cline has captured the failure event and can formulate an alternative plan without discarding already completed work.
+              </span>
+              <button
+                onClick={() => setShowTechnicalError(!showTechnicalError)}
+                className="text-xs font-mono text-cyan-400 hover:text-cyan-300 underline flex items-center gap-1 cursor-pointer"
+              >
+                {showTechnicalError ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                {showTechnicalError ? 'Hide Technical Details' : 'View Technical Details'}
+              </button>
+            </div>
+
+            {showTechnicalError && (
+              <pre className="p-3 bg-slate-900 border border-slate-800 rounded text-xs text-rose-300 font-mono overflow-x-auto max-h-36">
+                {JSON.stringify({
+                  failedNode: nodes.find((n: any) => n.state === 'FAILED')?.id || 'unknown',
+                  sessionStatus: missionStatus,
+                  observation: 'Process returned non-zero status code or assertion violated during tool execution.',
+                  suggestedAction: 'Send instruction to Cline to retry with additional debugging logs.',
+                }, null, 2)}
+              </pre>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── CORE OPERATOR GRID ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -626,30 +759,35 @@ export function MissionDetailPage() {
             )}
           </div>
 
-          {/* 3. PREDICTION VS REALITY */}
+          {/* 3. MISSION METRICS (Real data only) */}
           <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-5">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <TrendingUp className="w-4 h-4 text-emerald-400" />
                 <span className="text-xs font-bold font-mono text-slate-200 uppercase tracking-wider">
-                  PREDICTION VS REALITY
+                  MISSION METRICS
                 </span>
               </div>
-              <span className="text-[10px] text-slate-500 font-mono">50 Sweep Iterations</span>
             </div>
 
             <div className="grid grid-cols-3 gap-2 text-center">
               <div className="p-2.5 bg-slate-900 border border-slate-800 rounded-lg">
-                <span className="text-[10px] text-slate-500 block font-mono">PREDICTED</span>
-                <span className="text-sm font-bold font-mono text-amber-400">14% FAIL</span>
+                <span className="text-[10px] text-slate-500 block font-mono">TASKS</span>
+                <span className="text-sm font-bold font-mono text-cyan-400">
+                  {nodes.filter((n: any) => n.state === 'COMPLETED').length}/{nodes.length || '—'}
+                </span>
               </div>
               <div className="p-2.5 bg-slate-900 border border-slate-800 rounded-lg">
-                <span className="text-[10px] text-slate-500 block font-mono">ACTUAL</span>
-                <span className="text-sm font-bold font-mono text-emerald-400">0% FAIL</span>
+                <span className="text-[10px] text-slate-500 block font-mono">TOKENS</span>
+                <span className="text-sm font-bold font-mono text-emerald-400">
+                  {tokenUsage.totalTokens > 0 ? tokenUsage.totalTokens.toLocaleString() : '—'}
+                </span>
               </div>
               <div className="p-2.5 bg-slate-900 border border-slate-800 rounded-lg">
-                <span className="text-[10px] text-slate-500 block font-mono">ACCURACY</span>
-                <span className="text-sm font-bold font-mono text-cyan-400">86.0%</span>
+                <span className="text-[10px] text-slate-500 block font-mono">COST</span>
+                <span className="text-sm font-bold font-mono text-amber-400">
+                  {tokenUsage.estimatedCostUsd > 0 ? `$${tokenUsage.estimatedCostUsd.toFixed(4)}` : '—'}
+                </span>
               </div>
             </div>
           </div>

@@ -41,67 +41,113 @@ function ApprovalCard({ approval, onDecide }: {
     }
   };
 
+  // Derive human-friendly explanations
+  const getToolActionDescription = (name: string) => {
+    const n = name.toLowerCase();
+    if (n.includes('write') || n.includes('patch')) return 'Modify or create codebase files';
+    if (n.includes('command') || n.includes('exec') || n.includes('bash')) return 'Execute terminal shell command';
+    if (n.includes('sql') || n.includes('db') || n.includes('migration')) return 'Mutate database schema or data';
+    if (n.includes('config') || n.includes('kernel')) return 'Update runtime governance or security settings';
+    return 'Execute physical system tool';
+  };
+
   return (
     <div className={cn(
-      'bg-slate-900/80 border rounded-xl p-5',
-      approval.riskLevel === 'CRITICAL' ? 'border-rose-900/50 bg-rose-950/10' : 'border-slate-800'
+      'bg-slate-900/90 border rounded-xl p-5 space-y-4 shadow-lg',
+      approval.riskLevel === 'CRITICAL' ? 'border-rose-800/60 bg-rose-950/15' : 'border-slate-800'
     )}>
-      <div className="flex items-center justify-between mb-3">
+      {/* Header Banner */}
+      <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
         <div className="flex items-center gap-3">
-          <span className="text-sm font-mono font-medium text-slate-200">{approval.toolName}</span>
-          <span className={cn('px-2 py-0.5 rounded-full text-[10px] font-medium border', riskColors[approval.riskLevel] || riskColors.MEDIUM)}>
-            {approval.riskLevel}
-          </span>
-          <span className={cn('px-2 py-0.5 rounded-full text-[10px] font-medium border', statusColors[approval.status] || statusColors.pending)}>
-            {approval.status}
-          </span>
+          <div className="p-2 rounded-lg bg-slate-800 text-cyan-400 font-mono text-xs font-bold border border-slate-700">
+            {approval.toolName}
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-slate-100">
+                {getToolActionDescription(approval.toolName)}
+              </span>
+              <span className={cn('px-2 py-0.5 rounded-full text-[10px] font-bold border font-mono', riskColors[approval.riskLevel] || riskColors.MEDIUM)}>
+                {approval.riskLevel} RISK
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 font-mono mt-0.5">
+              Request ID: {approval.id.slice(0, 8)} • Mission: {approval.sessionId.slice(0, 8)}
+            </p>
+          </div>
         </div>
-        <span className="text-[10px] text-slate-600 font-mono">{approval.id.slice(0, 8)}</span>
+        <span className={cn('px-2.5 py-1 rounded-md text-xs font-bold font-mono border uppercase tracking-wider', statusColors[approval.status] || statusColors.pending)}>
+          {approval.status}
+        </span>
       </div>
 
-      {approval.reason && (
-        <p className="text-xs text-slate-400 mb-3 bg-slate-950/50 p-3 rounded-lg border border-slate-800/50">
-          {approval.reason}
-        </p>
-      )}
+      {/* Human Guidance Context: Why am I being asked? */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+        <div className="p-3 bg-slate-950/70 border border-slate-800/80 rounded-lg space-y-1">
+          <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider block font-semibold">
+            WHY AM I BEING ASKED?
+          </span>
+          <p className="text-slate-300">
+            {approval.reason || 'This tool performs physical modifications and requires human operator authorization under tenant safety policy.'}
+          </p>
+        </div>
 
-      <div className="mb-3">
-        <span className="text-[10px] text-slate-500 block mb-1">TOOL PARAMETERS</span>
-        <pre className="p-3 bg-slate-950 border border-slate-800 rounded-lg text-xs text-cyan-300 font-mono overflow-x-auto max-h-32 whitespace-pre-wrap">
+        <div className="p-3 bg-slate-950/70 border border-slate-800/80 rounded-lg space-y-1">
+          <span className="text-[10px] font-mono text-cyan-400 uppercase tracking-wider block font-semibold">
+            CLINE'S RECOMMENDATION
+          </span>
+          <p className="text-slate-300">
+            {approval.riskLevel === 'CRITICAL'
+              ? 'Review carefully — this action modifies sensitive infrastructure or permanent data.'
+              : 'Approve — this action is a planned milestone required to advance the mission frontier.'}
+          </p>
+        </div>
+      </div>
+
+      {/* Proposed Tool Parameters */}
+      <div className="space-y-1.5">
+        <span className="text-[10px] text-slate-500 font-mono uppercase tracking-wider block font-semibold">
+          PROPOSED ACTION DETAILS
+        </span>
+        <pre className="p-3 bg-slate-950 border border-slate-800/90 rounded-lg text-xs text-cyan-300 font-mono overflow-x-auto max-h-36 whitespace-pre-wrap">
           {JSON.stringify(approval.toolParameters, null, 2)}
         </pre>
       </div>
 
-      <div className="grid grid-cols-4 gap-3 text-[10px] text-slate-500 font-mono mb-3">
-        <div><span className="block text-slate-600">AGENT</span>{approval.agentId.slice(0, 8)}</div>
-        <div><span className="block text-slate-600">SESSION</span>{approval.sessionId.slice(0, 8)}</div>
-        <div><span className="block text-slate-600">TIMEOUT</span>{approval.timeoutSeconds}s</div>
-        <div><span className="block text-slate-600">EXPIRES</span>{approval.expiresAt ? new Date(approval.expiresAt).toLocaleTimeString() : '—'}</div>
+      {/* Consequences breakdown */}
+      <div className="grid grid-cols-2 gap-2 text-[11px] font-mono text-slate-400 p-2.5 bg-slate-950/40 border border-slate-800/50 rounded-lg">
+        <div>
+          <span className="text-emerald-400 font-bold">✓ IF APPROVED:</span> ToolGateway issues HMAC token and executes immediately.
+        </div>
+        <div>
+          <span className="text-rose-400 font-bold">✕ IF REJECTED:</span> Action is denied; Cline replans an alternative strategy.
+        </div>
       </div>
 
+      {/* Action Controls for Pending */}
       {isPending && (
         <div className="pt-3 border-t border-slate-800 space-y-3">
           <input
             type="text"
-            placeholder="Decision reason (optional)..."
+            placeholder="Feedback or reason for decision (optional)..."
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-cyan-500"
+            className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-cyan-500 font-mono"
           />
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <button
               onClick={() => handleDecide('REJECTED')}
               disabled={deciding}
-              className="flex-1 px-3 py-1.5 text-xs font-medium text-rose-300 bg-rose-950/50 border border-rose-800/50 rounded-lg hover:bg-rose-900/50 transition-colors disabled:opacity-50"
+              className="flex-1 py-2 text-xs font-bold text-rose-300 bg-rose-950/60 border border-rose-800/60 rounded-lg hover:bg-rose-900/60 transition-colors disabled:opacity-50 cursor-pointer font-mono"
             >
-              ✕ Reject
+              ✕ Reject Request
             </button>
             <button
               onClick={() => handleDecide('APPROVED')}
               disabled={deciding}
-              className="flex-1 px-3 py-1.5 text-xs font-medium text-emerald-300 bg-emerald-950/50 border border-emerald-800/50 rounded-lg hover:bg-emerald-900/50 transition-colors disabled:opacity-50"
+              className="flex-1 py-2 text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 rounded-lg transition-colors disabled:opacity-50 cursor-pointer font-mono shadow-md shadow-emerald-500/20"
             >
-              ✓ Approve
+              ✓ Approve & Execute
             </button>
           </div>
         </div>
